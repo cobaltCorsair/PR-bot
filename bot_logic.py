@@ -61,12 +61,11 @@ class PrBot:
     def go_to_ancestor_forum(self):
         try:
             # переход на родительский форум
-            self.driver.get(self.ancestor_forum)
+            self.to_start()
             # заход под рекламным аккаунтом
             self.url = self.ancestor_forum
             self.first_enter()
             # переход в рекламную тему на этом форуме
-            self.to_start()
             return True
         except LoginExceptions:
             print('Ошибка входа')
@@ -168,7 +167,8 @@ class PrBot:
         # переходим в профиль рекламы
         self.driver.get(profile_url)
 
-        self.get_pr_messages(user_id)
+        if self.get_pr_messages(user_id):
+            return True
 
     def get_pr_messages(self, user_id):
         # ищем сообщения рекламного аккаунта
@@ -176,7 +176,8 @@ class PrBot:
         messages = self.url + 'search.php?action=show_user_posts&user_id=' + user_id
         self.driver.get(messages)
 
-        self.go_to_pr_topic()
+        if self.go_to_pr_topic():
+            return True
 
     def go_to_pr_topic(self):
         # переходим в тему последнего сообщения
@@ -185,7 +186,8 @@ class PrBot:
         pr_topic_link = pr_topic.get_attribute('href')
         self.driver.get(pr_topic_link)
 
-        self.check_image_and_form_answer()
+        if self.check_image_and_form_answer():
+            return True
 
     def check_image_and_form_answer(self):
         # проверка на наличие картинки в сообщении
@@ -203,9 +205,9 @@ class PrBot:
             if self.url == self.ancestor_forum:
                 print('Мы не смогли зайти в родительский форум, задайте ссылку вручную')
                 # тут нужна функция перехода по ссылке в рекламную тему
-            # разлогин из аккаунта
-            self.forum_logout()
-            raise LoginExceptions
+                # разлогин из аккаунта
+                self.forum_logout()
+                raise LoginExceptions
 
     def forum_logout(self):
         # разлогиниваемся из аккаунта
