@@ -1,11 +1,7 @@
-from selenium import webdriver
-from pprint import pformat
-import os
-import sys
 import time
 import re
 import json
-
+from selenium import webdriver
 from selenium.common.exceptions import NoSuchElementException, JavascriptException
 
 
@@ -13,8 +9,14 @@ class LoginExceptions(Exception):
     pass
 
 
+class LinkError(Exception):
+    pass
+
+
 class PrBot:
-    def __init__(self, url, ancestor_forum, ancestor_pr_topic, pr_code, mark=''):
+    """Класс пиар-бота, запускающий процесс рекламы"""
+
+    def __init__(self, url, ancestor_forum, ancestor_pr_topic, pr_code, mark):
         # получаем время старта скрипта
         self.start_time = time.time()
         self.options = webdriver.ChromeOptions()
@@ -35,8 +37,6 @@ class PrBot:
         self.ancestor_pr_topic = ancestor_pr_topic
         # пиар-код форума, который мы рекламим
         self.pr_code = pr_code
-        # переменная для сохранения шаблона рекламы на форуме, где рекламим
-        self.first_post_html = None
         # маркировка Пиар-бота для сообщений на родительском форуме
         self.mark = mark
         # инициализируем оба окна
@@ -44,38 +44,64 @@ class PrBot:
         self.window_after = None
 
     def select_forum(self):
+        """Выбор форума"""
+        # если вход на родительский форум успешен, то
         if self.go_to_ancestor_forum():
-            # открыть новую пустую вкладку
-            self.driver.execute_script("window.open()")
-            self.window_after = self.driver.window_handles[1]
-            # проходим по форумам в списке переданных ссылок
-            forums = self.urls
-            for http in forums:
-                self.url = http
-                self.driver.switch_to.window(self.window_after)
-                self.driver.get(self.url)
-                self.first_enter()
+            # переход по форумам-потомкам
+            self.choice_descendant_forum()
         else:
-            print('Логин на родительский форум не удался, работа прекращена')
+            print('Поиск темы на форуме не удался, осуществляем прямой переход')
+            self.driver.get(self.ancestor_pr_topic)
+            # переход по форумам-потомкам
+            self.choice_descendant_forum()
+
+    def choice_descendant_forum(self):
+        """Выбрать дочерний форум"""
+        # открыть новую пустую вкладку
+        self.driver.execute_script("window.open()")
+        self.window_after = self.driver.window_handles[1]
+        # проходим по форумам в списке переданных ссылок
+        forums = self.urls
+        for http in forums:
+            self.url = http
+            self.driver.switch_to.window(self.window_after)
+            self.driver.get(self.url)
+            if self.first_enter():
+                # переход в рекламную тему на этом форуме
+                p = GetPRMessage(self.driver, self.pr_code, self.mark)
+                p.get_pr_code()
+                if p.checking_html(self.url):
+                    self.driver.switch_to.window(self.window_before)
+                    p.paste_pr_code()
+                    p.post_to_forum()
+                    p.get_post_link()
+                    self.driver.switch_to.window(self.window_after)
+                    p.post_pr_code_with_link()
+                    p.post_to_forum()
+                    return True
+                else:
+                    print('В шаблоне рекламы отсутствует ссылка на форум')
+                    raise LinkError
 
     def go_to_ancestor_forum(self):
+        """Переход к родительскому форуму"""
         try:
             # переход на родительский форум
             self.to_start()
             # заход под рекламным аккаунтом
             self.url = self.ancestor_forum
-            self.first_enter()
             # переход в рекламную тему на этом форуме
+            self.first_enter()
             return True
         except LoginExceptions:
             print('Ошибка входа')
 
     def to_start(self):
-        # переход на родительский форум
+        """Быстрый переход на родительский форум"""
         self.driver.get(self.ancestor_forum)
 
-    def choise_pr_account(self):
-        # функция, ищущая пиар-вход
+    def choice_pr_account(self):
+        """Функция, ищущая пиар-вход"""
 
         # если есть скрипт для двух акков, но нет скрипта на стандартный вход
         one_pr = '''
@@ -111,15 +137,18 @@ class PrBot:
 
     @staticmethod
     def all_variables():
+        """Вспомогательный метод - выбирает скрипт для использования"""
         accounts = ['''PiarIn();''', '''PR['in_1']();''', '''PR['in_2']();''']
         return accounts
 
     def try_login(self, script):
+        """Пытаемся залогиниться"""
         self.driver.execute_script(script)
         return True
 
     def first_enter(self):
-        results = self.choise_pr_account()
+        """Цепочка вариантов для логина на форум"""
+        results = self.choice_pr_account()
         logins = PrBot.all_variables()
 
         if results[1]:
@@ -154,7 +183,9 @@ class PrBot:
                         return False
 
     def get_profile_id(self):
+        """Поиск профиля на форуме"""
         # ищем профиль
+        time.sleep(2)
         div_profile = self.driver.find_element_by_id('navprofile')
         profile_url = div_profile.find_element_by_css_selector('a').get_attribute('href')
         # парсим из адреса профиля текущий id залогиненного аккаунта
@@ -171,7 +202,7 @@ class PrBot:
             return True
 
     def get_pr_messages(self, user_id):
-        # ищем сообщения рекламного аккаунта
+        """Ищем сообщения рекламного аккаунта"""
         # получаем ссылку на все сообщения пользователя и переходим по ней
         messages = self.url + 'search.php?action=show_user_posts&user_id=' + user_id
         self.driver.get(messages)
@@ -180,7 +211,7 @@ class PrBot:
             return True
 
     def go_to_pr_topic(self):
-        # переходим в тему последнего сообщения
+        """Переходим в тему последнего сообщения"""
         # self.driver.find_element_by_link_text('Перейти к теме')
         pr_topic = self.driver.find_element_by_xpath('//*[@id="pun-main"]/div[2]/div[1]/div/div[3]/ul/li/a')
         pr_topic_link = pr_topic.get_attribute('href')
@@ -190,7 +221,7 @@ class PrBot:
             return True
 
     def check_image_and_form_answer(self):
-        # проверка на наличие картинки в сообщении
+        """Проверка на наличие картинки в сообщении"""
         form_answer = 'main-reply'
         xpath_code = ".//div[contains(@class,'post topicpost firstpost')]//*[contains(@class, 'code-box')]"
         xpath_image = ".//div[contains(@class,'endpost')]//*[contains(@class, 'postimg')]"
@@ -200,22 +231,98 @@ class PrBot:
                     xpath_code) and self.driver.find_element_by_id(form_answer):
                 print('Мы попали в рекламную тему на форуме ' + self.url)
                 return True
-        except NoSuchElementException:
+        except NoSuchElementException as ex:
             print("Не найдена рекламная тема на форуме " + self.url)
             if self.url == self.ancestor_forum:
                 print('Мы не смогли зайти в родительский форум, задайте ссылку вручную')
-                # тут нужна функция перехода по ссылке в рекламную тему
-                # разлогин из аккаунта
-                self.forum_logout()
-                raise LoginExceptions
+            # разлогин из аккаунта
+            self.forum_logout()
+            raise LoginExceptions from ex
 
     def forum_logout(self):
-        # разлогиниваемся из аккаунта
+        """Разлогиниваемся из аккаунта"""
         logout_url = self.url + 'login.php?action=out&id=' + self.user_id
         self.driver.get(logout_url)
 
 
 test = PrBot(['https://19centuryrussia.rusff.me', 'https://298.rusff.me', 'https://96kingdom.rusff.me',
               'https://acadia.rusff.me'], 'http://freshair.rusff.me/',
-             'http://freshair.rusff.me/viewtopic.php?id=617', 'Test', 'Test')
+             'http://freshair.rusff.me/viewtopic.php?id=617', 'test_pr_scheme', 'test_mark')
 test.select_forum()
+
+
+class GetPRMessage:
+    """Класс для получения изображений"""
+
+    def __init__(self, driver, pr_code, mark=''):
+        # пиар-код форума, который мы рекламим
+        self.pr_code = pr_code
+        # переменная для сохранения шаблона рекламы на форуме, где рекламим
+        self.first_post_html = None
+        # маркировка Пиар-бота для сообщений на родительском форуме
+        self.mark = mark
+        # переменная под ссылку на сообщение с рекламой
+        self.pr_post_link = None
+        # вебдрайвер
+        self.driver = driver
+
+    def get_pr_code(self):
+        """Получаем шаблон рекламы на дочернем форуме"""
+        first_post = self.driver.find_element_by_class_name('firstpost')
+        self.first_post_html = first_post.find_element_by_xpath("//pre").get_attribute("innerHTML")
+        return True
+
+    def checking_html(self, forum_url):
+        """Проверяем наличие в шаблоне ссылки на текущий форум"""
+        code = self.first_post_html
+        base_url = forum_url.split('://')[1]
+        data = base_url.split('/')[0]
+        if data in code:
+            return True
+
+    def paste_pr_code(self):
+        """Ищем форму ответа на родительском форуме и записываем шаблон с маркировкой"""
+        # выключает нажатие tab на форме
+        stop_enter_press = '''$(document).ready(function() {
+                      $(window).keydown(function(event){
+                        if(event.keyCode == 9) {
+                          event.preventDefault();
+                          return false;
+                        }
+                      });
+                    });'''
+
+        self.driver.execute_script(stop_enter_press)
+        # чистим html от тегов и ставим маркировку
+        first_post_html_safety = re.sub(r'<span>', '', self.first_post_html).replace('</span>', '')
+        pr_code_with_mark = f"{first_post_html_safety} {self.mark}"
+        # переписываем в json для быстрой отправки
+        json_code = json.dumps(pr_code_with_mark)
+
+        self.get_json(json_code)
+        return True
+
+    def get_json(self, json_code):
+        """Отправка json-кода в форму ответа"""
+        enter_json = "let jsonData =" + json_code + "; $('#main-reply').text(jsonData);"
+        self.driver.execute_script(enter_json)
+        return True
+
+    def post_to_forum(self):
+        """Постим рекламу на форум"""
+        main_reply_submit_button = self.driver.find_element_by_css_selector('input.button.submit')
+        main_reply_submit_button.click()
+        return True
+
+    def get_post_link(self):
+        """Получаем ссылку на отправленное сообщение"""
+        self.pr_post_link = self.driver.current_url
+        return True
+
+    def post_pr_code_with_link(self):
+        """Отправляем шаблон рекламы вместе со ссылкой"""
+        end_scheme = f"{self.pr_code} {self.pr_post_link}"
+        json_child_code = json.dumps(end_scheme)
+
+        self.get_json(json_child_code)
+        return True
