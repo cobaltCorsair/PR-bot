@@ -2,7 +2,8 @@ import time
 import re
 import json
 from selenium import webdriver
-from selenium.common.exceptions import NoSuchElementException, JavascriptException
+from selenium.common.exceptions import NoSuchElementException, JavascriptException, TimeoutException, \
+    UnexpectedAlertPresentException
 
 
 class LoginExceptions(Exception):
@@ -13,6 +14,10 @@ class LinkError(Exception):
     pass
 
 
+class NoAccountMessage(Exception):
+    pass
+
+
 class GetPRMessage:
     """Класс для получения изображений"""
 
@@ -20,7 +25,7 @@ class GetPRMessage:
         # пиар-код форума, который мы рекламим
         self.pr_code = pr_code
         # переменная для сохранения шаблона рекламы на форуме, где рекламим
-        self.first_post_html = None
+        self.topic_post_html = None
         # маркировка Пиар-бота для сообщений на родительском форуме
         self.mark = mark
         # переменная под ссылку на сообщение с рекламой
@@ -30,13 +35,13 @@ class GetPRMessage:
 
     def get_pr_code(self):
         """Получаем шаблон рекламы на дочернем форуме"""
-        first_post = self.driver.find_element_by_class_name('firstpost')
-        self.first_post_html = first_post.find_element_by_xpath("//pre").get_attribute("innerHTML")
+        topic_post = self.driver.find_element_by_class_name('topicpost')
+        self.topic_post_html = topic_post.find_element_by_xpath("//pre").get_attribute("innerHTML")
         return True
 
     def checking_html(self, forum_url):
         """Проверяем наличие в шаблоне ссылки на текущий форум"""
-        code = self.first_post_html
+        code = self.topic_post_html
         base_url = forum_url.split('://')[1]
         data = base_url.split('/')[0]
         if data in code:
@@ -56,7 +61,7 @@ class GetPRMessage:
 
         self.driver.execute_script(stop_enter_press)
         # чистим html от тегов и ставим маркировку
-        first_post_html_safety = re.sub(r'<span>', '', self.first_post_html).replace('</span>', '')
+        first_post_html_safety = re.sub(r'<span>', '', self.topic_post_html).replace('</span>', '')
         pr_code_with_mark = f"{first_post_html_safety} {self.mark}"
         # переписываем в json для быстрой отправки
         json_code = json.dumps(pr_code_with_mark)
@@ -147,38 +152,55 @@ class PrBot:
         for http in forums:
             self.url = http
             self.driver.switch_to.window(self.window_after)
-            self.driver.get(self.url)
+            try:
+                self.driver.get(self.url)
+            except (TimeoutException, UnexpectedAlertPresentException):
+                print(f'Невозможно загрузить форум {self.url}')
+                PrBot.FAILED_FORUMS.append(self.url)
             try:
                 if self.first_enter():
-                    # переход в рекламную тему на этом форуме
-                    p = GetPRMessage(self.driver, self.pr_code, self.mark)
-                    p.get_pr_code()
-                    if p.checking_html(self.url):
-                        self.driver.switch_to.window(self.window_before)
-                        p.paste_pr_code()
-                        p.post_to_forum()
-                        p.get_post_link()
-                        self.driver.switch_to.window(self.window_after)
-                        p.post_pr_code_with_link()
-                        p.post_to_forum()
-
-                        PrBot.SUCCESSFUL_FORUMS.append(self.url)
-                    else:
-                        print('В шаблоне рекламы отсутствует ссылка на форум')
-                        raise LinkError
-            except LoginExceptions:
+                    self.go_to_forum()
+            except (LoginExceptions, NoSuchElementException):
                 print(f'На форуме {self.url} нет формы ответа, кода рекламы или картинки в последнем посте темы пиара')
                 PrBot.FAILED_FORUMS.append(self.url)
             except LinkError:
-                print('Тема не прошла проверку на то, что она рекламная')
+                print(f'Тема форума {self.url} не прошла проверку на то, что она рекламная')
+                PrBot.FAILED_FORUMS.append(self.url)
+            except NoAccountMessage:
+                print(f'На форуме {self.url} еще нет сообщений у этого аккаунта')
                 PrBot.FAILED_FORUMS.append(self.url)
         else:
             print(f'Успешно пройдено форумов: {len(PrBot.SUCCESSFUL_FORUMS)} \n'
                   f'Было пропущено форумов: {len(PrBot.FAILED_FORUMS)}')
-
-            time_export = round(round(time.time() - PrBot.start_time, 2) / 60)
-            print(f'Затрачено времени на выполнение (в минутах): {time_export}')
+            self.get_work_time()
             return True
+
+    def go_to_forum(self):
+        """Переход в рекламную тему на этом форуме"""
+        p = GetPRMessage(self.driver, self.pr_code, self.mark)
+        p.get_pr_code()
+        if p.checking_html(self.url):
+            self.driver.switch_to.window(self.window_before)
+            # проверяем, активна ли форма ответа на родительском форуме
+            if self.driver.find_element_by_xpath("//*[@id='main-reply']"):
+                p.paste_pr_code()
+                p.post_to_forum()
+                p.get_post_link()
+                self.driver.switch_to.window(self.window_after)
+                p.post_pr_code_with_link()
+                p.post_to_forum()
+
+                PrBot.SUCCESSFUL_FORUMS.append(self.url)
+            else:
+                print('Закончилась рекламная тема на родительском форуме')
+                raise StopIteration
+        else:
+            print(f'В шаблоне рекламы отсутствует ссылка на форум {self.url}')
+            raise LinkError
+
+    def get_work_time(self):
+        time_export = round(round(time.time() - PrBot.start_time, 2) / 60)
+        print(f'Затрачено времени на выполнение (в минутах): {time_export}')
 
     def go_to_ancestor_forum(self):
         """Переход к родительскому форуму"""
@@ -191,7 +213,7 @@ class PrBot:
             self.first_enter()
             return True
         except LoginExceptions:
-            print('Ошибка входа')
+            print('Ошибка входа в аккаунт на родительском форуме')
 
     def to_start(self):
         """Быстрый переход на родительский форум"""
@@ -251,8 +273,10 @@ class PrBot:
         if results[1]:
             # проверяем логин в стандартный скрипт, без ветвлений
             if self.try_login(logins[0]):
-                self.get_profile_id()
-                return True
+                if self.get_profile_id():
+                    return True
+                else:
+                    return False
         elif results[0]:
             # проверяем логин в двойной скрипт, заходим в первый аккаунт, если False, идем во второй
             if self.try_login(logins[1]):
@@ -290,21 +314,26 @@ class PrBot:
     def get_profile_id(self):
         """Поиск профиля на форуме"""
         # ищем профиль
-        time.sleep(1)
-        div_profile = self.driver.find_element_by_id('navprofile')
-        profile_url = div_profile.find_element_by_css_selector('a').get_attribute('href')
-        # парсим из адреса профиля текущий id залогиненного аккаунта
-        user_id = profile_url.split("=")[1]
-        self.user_id = user_id
-        # проверка на валидность url
-        self.url = self.url + '/' if self.url[-1] != '/' else self.url
-        # получаем профиль рекламы
-        profile_url = self.url + 'profile.php?id=' + user_id
-        # переходим в профиль рекламы
-        self.driver.get(profile_url)
+        try:
+            time.sleep(3)
+            # div_profile = self.driver.find_element_by_id('navprofile')
+            # profile_url = div_profile.find_element_by_css_selector('a').get_attribute('href')
+            # # парсим из адреса профиля текущий id залогиненного аккаунта
+            # user_id = profile_url.split("=")[1]
+            user_id = str(self.driver.execute_script("return (function() { return UserID }())"))
+            self.user_id = user_id
+            # проверка на валидность url
+            self.url = self.url + '/' if self.url[-1] != '/' else self.url
+            # получаем профиль рекламы
+            profile_url = self.url + 'profile.php?id=' + user_id
+            # переходим в профиль рекламы
+            self.driver.get(profile_url)
 
-        if self.get_pr_messages(user_id):
-            return True
+            if self.get_pr_messages(user_id):
+                return True
+        except (NoSuchElementException, JavascriptException):
+            print(f'Не успел загрузиться профиль на форуме {self.url}')
+            raise NoAccountMessage
 
     def get_pr_messages(self, user_id):
         """Ищем сообщения рекламного аккаунта"""
@@ -327,21 +356,22 @@ class PrBot:
 
     def check_image_and_form_answer(self):
         """Проверка на наличие картинки в сообщении"""
-        form_answer = 'main-reply'
-        xpath_code = ".//div[contains(@class,'post topicpost firstpost')]//*[contains(@class, 'code-box')]"
+        form_answer = "//*[@id='main-reply']"
+        xpath_code = ".//div[contains(@class,'post topicpost')]//*[contains(@class, 'code-box')]"
         xpath_image = ".//div[contains(@class,'endpost')]//*[contains(@class, 'postimg')]"
 
         try:
             if self.driver.find_element_by_xpath(xpath_image) and self.driver.find_element_by_xpath(
-                    xpath_code) and self.driver.find_element_by_id(form_answer):
+                    xpath_code) and self.driver.find_element_by_xpath(form_answer):
                 print('Мы попали в рекламную тему на форуме ' + self.url)
                 return True
         except NoSuchElementException as ex:
             print("Не найдена рекламная тема на форуме " + self.url)
             if self.url == self.ancestor_forum:
                 print('Мы не смогли зайти в родительский форум автоматически, необходима ссылка')
-            # разлогин из аккаунта
-            self.forum_logout()
+            else:
+                self.forum_logout()
+                return False
             raise LoginExceptions from ex
 
     def forum_logout(self):
@@ -350,7 +380,14 @@ class PrBot:
         self.driver.get(logout_url)
 
 
-test = PrBot(['http://lovekilla.rusff.me/', 'https://afterus.f-rpg.me/', 'https://lockdown2021.rusff.me/'], 'https://helix.rusff.me/',
-             'https://helix.rusff.me/viewtopic.php?id=81', '[align=center][url=https://helix.rusff.me][img]https://i.imgur.com/mt5slYU.png[/img][/url][/align]', 'test_mark')
+test = PrBot(['https://almarein.spybb.ru', 'https://andover.f-rpg.me', 'https://arkhamstories.rusff.me',
+'https://artishock.rusff.me', 'https://astep.rusff.me', 'https://asunai.anihub.me', 'https://avokadokedavra.rusff.me', 'https://awakening.rolebb.ru', 'https://bagbones.rusff.me',
+'https://becomehuman.ru', 'https://betterhide.rusff.me', 'https://betwixtcrossover.f-rpg.me', 'https://blessthismess.rusff.me', 'https://blindfaith.rusff.me', 'https://bloody.rusff.me',
+'https://borgias.mybb.ru', 'https://bostoncrazzy.rusff.me', 'https://bratz.f-rpg.me', 'https://brave-world.ru', 'https://breakfastclub.rusff.me',
+'https://caineville.6bb.ru', 'https://camelot.rolbb.me', 'https://capital-queen.ru', 'https://castlerockisland.rusff.me', 'https://cgeass.rusff.me', 'https://chaldea.rusff.me', 'https://chaostheory.f-rpg.me',
+'https://circles.rolka.me', 'https://citywitch.rusff.me', 'https://clockworkstory.rusff.me', 'https://closeenemy.rusff.me'],
+             'http://freshair.rusff.me/',
+             'http://freshair.rusff.me/viewtopic.php?id=617&p=28',
+             '[align=center][url=http://freshair.rusff.me/][img]https://i.imgur.com/5Tx4D6F.png[/img][/url][/align]',
+             '[align=right][b][size=8]PR-бот[/size][/b][/align]')
 test.select_forum()
-
