@@ -316,10 +316,6 @@ class PrBot:
         # ищем профиль
         try:
             time.sleep(3)
-            # div_profile = self.driver.find_element_by_id('navprofile')
-            # profile_url = div_profile.find_element_by_css_selector('a').get_attribute('href')
-            # # парсим из адреса профиля текущий id залогиненного аккаунта
-            # user_id = profile_url.split("=")[1]
             user_id = str(self.driver.execute_script("return (function() { return UserID }())"))
             self.user_id = user_id
             # проверка на валидность url
@@ -380,12 +376,7 @@ class PrBot:
         self.driver.get(logout_url)
 
 
-test = PrBot(['https://almarein.spybb.ru', 'https://andover.f-rpg.me', 'https://arkhamstories.rusff.me',
-'https://artishock.rusff.me', 'https://astep.rusff.me', 'https://asunai.anihub.me', 'https://avokadokedavra.rusff.me', 'https://awakening.rolebb.ru', 'https://bagbones.rusff.me',
-'https://becomehuman.ru', 'https://betterhide.rusff.me', 'https://betwixtcrossover.f-rpg.me', 'https://blessthismess.rusff.me', 'https://blindfaith.rusff.me', 'https://bloody.rusff.me',
-'https://borgias.mybb.ru', 'https://bostoncrazzy.rusff.me', 'https://bratz.f-rpg.me', 'https://brave-world.ru', 'https://breakfastclub.rusff.me',
-'https://caineville.6bb.ru', 'https://camelot.rolbb.me', 'https://capital-queen.ru', 'https://castlerockisland.rusff.me', 'https://cgeass.rusff.me', 'https://chaldea.rusff.me', 'https://chaostheory.f-rpg.me',
-'https://circles.rolka.me', 'https://citywitch.rusff.me', 'https://clockworkstory.rusff.me', 'https://closeenemy.rusff.me'],
+test = PrBot(['https://almarein.spybb.ru'],
              'http://freshair.rusff.me/',
              'http://freshair.rusff.me/viewtopic.php?id=617&p=28',
              '[align=center][url=http://freshair.rusff.me/][img]https://i.imgur.com/5Tx4D6F.png[/img][/url][/align]',
