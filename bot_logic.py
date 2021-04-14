@@ -1,21 +1,10 @@
 import time
 import re
 import json
+
 from selenium import webdriver
 from selenium.common.exceptions import NoSuchElementException, JavascriptException, TimeoutException, \
     UnexpectedAlertPresentException
-
-
-class LoginExceptions(Exception):
-    pass
-
-
-class LinkError(Exception):
-    pass
-
-
-class NoAccountMessage(Exception):
-    pass
 
 
 class GetPRMessage:
@@ -97,6 +86,7 @@ class GetPRMessage:
 
 class Driver:
     """Класс драйвера для запуска автоматизации"""
+
     def __init__(self):
         self.options = webdriver.ChromeOptions()
         self.options.add_argument('--blink-settings=imagesEnabled=false')
@@ -110,10 +100,10 @@ class Driver:
 
 
 class BotReport:
+    """Класс, коллекционирующий результаты прохода бота по форумам и выдающий отчет"""
+
     # глобальные переменные для неуспешных и успешных проходов
     SUCCESSFUL_FORUMS = []
-    # TODO: Добавить переменные для логов и их последующего вывода в файл
-
     NO_ELEMENTS_ERRORS = []
     WRONG_THEME_ERRORS = []
     ACCOUNT_ERRORS = []
@@ -126,6 +116,15 @@ class BotReport:
                   BotReport.ACCOUNT_ERRORS, BotReport.TIMEOUT_ERRORS]
         lens = map(len, result)
         return sum(lens)
+
+    @staticmethod
+    def get_bot_report():
+        errors = {'Не найдена форма ответа/картинка в последнем посте/код рекламы': BotReport.NO_ELEMENTS_ERRORS,
+                  'Недостоверная ссылка в теме': BotReport.WRONG_THEME_ERRORS,
+                  'Неверно найденный аккаунт': BotReport.ACCOUNT_ERRORS,
+                  'Превышено ожидание загрузки форума': BotReport.TIMEOUT_ERRORS}
+
+        print(*(i for i, k in errors.items() if len(k) is not 0), sep='\b')
 
 
 class PrBot:
@@ -194,6 +193,8 @@ class PrBot:
         else:
             print(f'Успешно пройдено форумов: {len(BotReport.SUCCESSFUL_FORUMS)} \n'
                   f'Было пропущено форумов: {BotReport.get_all_errors_len()}')
+
+            BotReport.get_bot_report()
             PrBot.get_work_time()
             return True
 
@@ -397,6 +398,18 @@ class PrBot:
         """Разлогиниваемся из аккаунта"""
         logout_url = self.url + 'login.php?action=out&id=' + self.user_id
         self.chrome.driver.get(logout_url)
+
+
+class LoginExceptions(Exception):
+    pass
+
+
+class LinkError(Exception):
+    pass
+
+
+class NoAccountMessage(Exception):
+    pass
 
 
 test = PrBot(['https://almarein.spybb.ru'],
