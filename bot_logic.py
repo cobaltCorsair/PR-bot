@@ -109,12 +109,27 @@ class Driver:
         self.window_after = None
 
 
-class PrBot:
-    """Класс пиар-бота, запускающий процесс рекламы"""
+class BotReport:
     # глобальные переменные для неуспешных и успешных проходов
-    FAILED_FORUMS = []
     SUCCESSFUL_FORUMS = []
     # TODO: Добавить переменные для логов и их последующего вывода в файл
+
+    NO_ELEMENTS_ERRORS = []
+    WRONG_THEME_ERRORS = []
+    ACCOUNT_ERRORS = []
+    TIMEOUT_ERRORS = []
+
+    @staticmethod
+    def get_all_errors_len():
+        """Получаем сумму проигнорированных форумов"""
+        result = [BotReport.NO_ELEMENTS_ERRORS, BotReport.WRONG_THEME_ERRORS,
+                  BotReport.ACCOUNT_ERRORS, BotReport.TIMEOUT_ERRORS]
+        lens = map(len, result)
+        return sum(lens)
+
+
+class PrBot:
+    """Класс пиар-бота, запускающий процесс рекламы"""
 
     # получаем время старта скрипта
     start_time = time.time()
@@ -163,22 +178,22 @@ class PrBot:
                 self.chrome.driver.get(self.url)
             except (TimeoutException, UnexpectedAlertPresentException):
                 print(f'Невозможно загрузить форум {self.url}')
-                PrBot.FAILED_FORUMS.append(self.url)
+                BotReport.TIMEOUT_ERRORS.append(self.url)
             try:
                 if self.first_enter():
                     self.go_to_forum()
             except (LoginExceptions, NoSuchElementException):
                 print(f'На форуме {self.url} нет формы ответа, кода рекламы или картинки в последнем посте темы пиара')
-                PrBot.FAILED_FORUMS.append(self.url)
+                BotReport.NO_ELEMENTS_ERRORS.append(self.url)
             except LinkError:
                 print(f'Тема форума {self.url} не прошла проверку на то, что она рекламная')
-                PrBot.FAILED_FORUMS.append(self.url)
+                BotReport.WRONG_THEME_ERRORS.append(self.url)
             except NoAccountMessage:
                 print(f'На форуме {self.url} еще нет сообщений у этого аккаунта')
-                PrBot.FAILED_FORUMS.append(self.url)
+                BotReport.ACCOUNT_ERRORS.append(self.url)
         else:
-            print(f'Успешно пройдено форумов: {len(PrBot.SUCCESSFUL_FORUMS)} \n'
-                  f'Было пропущено форумов: {len(PrBot.FAILED_FORUMS)}')
+            print(f'Успешно пройдено форумов: {len(BotReport.SUCCESSFUL_FORUMS)} \n'
+                  f'Было пропущено форумов: {BotReport.get_all_errors_len()}')
             PrBot.get_work_time()
             return True
 
@@ -197,7 +212,7 @@ class PrBot:
                 p.post_pr_code_with_link()
                 p.post_to_forum()
 
-                PrBot.SUCCESSFUL_FORUMS.append(self.url)
+                BotReport.SUCCESSFUL_FORUMS.append(self.url)
             else:
                 print('Закончилась рекламная тема на родительском форуме')
                 raise StopIteration
