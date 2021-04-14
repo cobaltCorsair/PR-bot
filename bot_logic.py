@@ -95,25 +95,31 @@ class GetPRMessage:
         return True
 
 
-class PrBot:
-    """Класс пиар-бота, запускающий процесс рекламы"""
-    # глобальные переменные для неуспешных и успешных проходов
-    FAILED_FORUMS = []
-    SUCCESSFUL_FORUMS = []
-    # TODO: Добавить переменные для логов и их последующего вывода в файл
-    # TODO: Отделить драйвер в отдельный класс
-
-    start_time = time.time()
-
-    def __init__(self, url, ancestor_forum, ancestor_pr_topic, pr_code, mark):
-        # получаем время старта скрипта
-        self.start_time = time.time()
+class Driver:
+    """Класс драйвера для запуска автоматизации"""
+    def __init__(self):
         self.options = webdriver.ChromeOptions()
         self.options.add_argument('--blink-settings=imagesEnabled=false')
         # self.options.add_argument('headless')
         self.executable_path = './driver/chromedriver.exe'
         # инициализация веб-драйвера
         self.driver = webdriver.Chrome(options=self.options, executable_path=self.executable_path)
+        # инициализируем оба окна
+        self.window_before = self.driver.window_handles[0]
+        self.window_after = None
+
+
+class PrBot:
+    """Класс пиар-бота, запускающий процесс рекламы"""
+    # глобальные переменные для неуспешных и успешных проходов
+    FAILED_FORUMS = []
+    SUCCESSFUL_FORUMS = []
+    # TODO: Добавить переменные для логов и их последующего вывода в файл
+
+    # получаем время старта скрипта
+    start_time = time.time()
+
+    def __init__(self, url, ancestor_forum, ancestor_pr_topic, pr_code, mark):
         # пустая переменная для текущей ссылки
         self.url = None
         # пустая переменная для id профиля
@@ -128,9 +134,8 @@ class PrBot:
         self.pr_code = pr_code
         # маркировка Пиар-бота для сообщений на родительском форуме
         self.mark = mark
-        # инициализируем оба окна
-        self.window_before = self.driver.window_handles[0]
-        self.window_after = None
+        # подключаем драйвер
+        self.chrome = Driver()
 
     def select_forum(self):
         """Выбор форума"""
@@ -140,22 +145,22 @@ class PrBot:
             self.choice_descendant_forum()
         else:
             print('Поиск темы на форуме не удался, осуществляем прямой переход')
-            self.driver.get(self.ancestor_pr_topic)
+            self.chrome.driver.get(self.ancestor_pr_topic)
             # переход по форумам-потомкам
             self.choice_descendant_forum()
 
     def choice_descendant_forum(self):
         """Выбрать дочерний форум"""
         # открыть новую пустую вкладку
-        self.driver.execute_script("window.open()")
-        self.window_after = self.driver.window_handles[1]
+        self.chrome.driver.execute_script("window.open()")
+        self.chrome.window_after = self.chrome.driver.window_handles[1]
         # проходим по форумам в списке переданных ссылок
         forums = self.urls
         for http in forums:
             self.url = http
-            self.driver.switch_to.window(self.window_after)
+            self.chrome.driver.switch_to.window(self.chrome.window_after)
             try:
-                self.driver.get(self.url)
+                self.chrome.driver.get(self.url)
             except (TimeoutException, UnexpectedAlertPresentException):
                 print(f'Невозможно загрузить форум {self.url}')
                 PrBot.FAILED_FORUMS.append(self.url)
@@ -174,21 +179,21 @@ class PrBot:
         else:
             print(f'Успешно пройдено форумов: {len(PrBot.SUCCESSFUL_FORUMS)} \n'
                   f'Было пропущено форумов: {len(PrBot.FAILED_FORUMS)}')
-            self.get_work_time()
+            PrBot.get_work_time()
             return True
 
     def go_to_forum(self):
         """Переход в рекламную тему на этом форуме"""
-        p = GetPRMessage(self.driver, self.pr_code, self.mark)
+        p = GetPRMessage(self.chrome.driver, self.pr_code, self.mark)
         p.get_pr_code()
         if p.checking_html(self.url):
-            self.driver.switch_to.window(self.window_before)
+            self.chrome.driver.switch_to.window(self.chrome.window_before)
             # проверяем, активна ли форма ответа на родительском форуме
-            if self.driver.find_element_by_xpath("//*[@id='main-reply']"):
+            if self.chrome.driver.find_element_by_xpath("//*[@id='main-reply']"):
                 p.paste_pr_code()
                 p.post_to_forum()
                 p.get_post_link()
-                self.driver.switch_to.window(self.window_after)
+                self.chrome.driver.switch_to.window(self.chrome.window_after)
                 p.post_pr_code_with_link()
                 p.post_to_forum()
 
@@ -200,7 +205,8 @@ class PrBot:
             print(f'В шаблоне рекламы отсутствует ссылка на форум {self.url}')
             raise LinkError
 
-    def get_work_time(self):
+    @staticmethod
+    def get_work_time():
         time_export = round(round(time.time() - PrBot.start_time, 2) / 60)
         print(f'Затрачено времени на выполнение (в минутах): {time_export}')
 
@@ -219,7 +225,7 @@ class PrBot:
 
     def to_start(self):
         """Быстрый переход на родительский форум"""
-        self.driver.get(self.ancestor_forum)
+        self.chrome.driver.get(self.ancestor_forum)
 
     def choice_pr_account(self):
         """Функция, ищущая пиар-вход"""
@@ -252,7 +258,7 @@ class PrBot:
         results = []
 
         for _ in all_scripts:
-            results.append(self.driver.execute_script(_))
+            results.append(self.chrome.driver.execute_script(_))
 
         return results
 
@@ -264,7 +270,7 @@ class PrBot:
 
     def try_login(self, script):
         """Пытаемся залогиниться"""
-        self.driver.execute_script(script)
+        self.chrome.driver.execute_script(script)
         return True
 
     def first_enter(self):
@@ -318,14 +324,14 @@ class PrBot:
         # ищем профиль
         try:
             time.sleep(3)
-            user_id = str(self.driver.execute_script("return (function() { return UserID }())"))
+            user_id = str(self.chrome.driver.execute_script("return (function() { return UserID }())"))
             self.user_id = user_id
             # проверка на валидность url
             self.url = self.url + '/' if self.url[-1] != '/' else self.url
             # получаем профиль рекламы
             profile_url = self.url + 'profile.php?id=' + user_id
             # переходим в профиль рекламы
-            self.driver.get(profile_url)
+            self.chrome.driver.get(profile_url)
 
             if self.get_pr_messages(user_id):
                 return True
@@ -337,7 +343,7 @@ class PrBot:
         """Ищем сообщения рекламного аккаунта"""
         # получаем ссылку на все сообщения пользователя и переходим по ней
         messages = self.url + 'search.php?action=show_user_posts&user_id=' + user_id
-        self.driver.get(messages)
+        self.chrome.driver.get(messages)
 
         if self.go_to_pr_topic():
             return True
@@ -345,9 +351,9 @@ class PrBot:
     def go_to_pr_topic(self):
         """Переходим в тему последнего сообщения"""
         # self.driver.find_element_by_link_text('Перейти к теме')
-        pr_topic = self.driver.find_element_by_xpath('//*[@id="pun-main"]/div[2]/div[1]/div/div[3]/ul/li/a')
+        pr_topic = self.chrome.driver.find_element_by_xpath('//*[@id="pun-main"]/div[2]/div[1]/div/div[3]/ul/li/a')
         pr_topic_link = pr_topic.get_attribute('href')
-        self.driver.get(pr_topic_link)
+        self.chrome.driver.get(pr_topic_link)
 
         if self.check_image_and_form_answer():
             return True
@@ -359,8 +365,8 @@ class PrBot:
         xpath_image = ".//div[contains(@class,'endpost')]//*[contains(@class, 'postimg')]"
 
         try:
-            if self.driver.find_element_by_xpath(xpath_image) and self.driver.find_element_by_xpath(
-                    xpath_code) and self.driver.find_element_by_xpath(form_answer):
+            if self.chrome.driver.find_element_by_xpath(xpath_image) and self.chrome.driver.find_element_by_xpath(
+                    xpath_code) and self.chrome.driver.find_element_by_xpath(form_answer):
                 print('Мы попали в рекламную тему на форуме ' + self.url)
                 return True
         except NoSuchElementException as ex:
@@ -375,7 +381,7 @@ class PrBot:
     def forum_logout(self):
         """Разлогиниваемся из аккаунта"""
         logout_url = self.url + 'login.php?action=out&id=' + self.user_id
-        self.driver.get(logout_url)
+        self.chrome.driver.get(logout_url)
 
 
 test = PrBot(['https://almarein.spybb.ru'],
