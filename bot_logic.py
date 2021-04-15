@@ -119,10 +119,10 @@ class BotReport:
 
     @staticmethod
     def get_bot_report():
-        errors = {'Не найдена форма ответа/картинка в последнем посте/код рекламы': BotReport.NO_ELEMENTS_ERRORS,
-                  'Недостоверная ссылка в теме': BotReport.WRONG_THEME_ERRORS,
-                  'Неверно найденный аккаунт': BotReport.ACCOUNT_ERRORS,
-                  'Превышено ожидание загрузки форума': BotReport.TIMEOUT_ERRORS}
+        errors = {'Не найдена форма ответа/картинка в последнем посте/код рекламы:': BotReport.NO_ELEMENTS_ERRORS,
+                  'Недостоверная ссылка в теме:': BotReport.WRONG_THEME_ERRORS,
+                  'Неверно найденный аккаунт:': BotReport.ACCOUNT_ERRORS,
+                  'Превышено ожидание загрузки форума:': BotReport.TIMEOUT_ERRORS}
 
         print(*(i for i, k in errors.items() if len(k) is not 0), sep='\b')
 
@@ -412,7 +412,7 @@ class NoAccountMessage(Exception):
     pass
 
 
-test = PrBot(['https://almarein.spybb.ru'],
+test = PrBot(['https://bombardo.rusff.me/'],
              'http://freshair.rusff.me/',
              'http://freshair.rusff.me/viewtopic.php?id=617&p=28',
              '[align=center][url=http://freshair.rusff.me/][img]https://i.imgur.com/5Tx4D6F.png[/img][/url][/align]',
