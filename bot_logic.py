@@ -3,8 +3,7 @@ import re
 import json
 
 from selenium import webdriver
-from selenium.common.exceptions import NoSuchElementException, JavascriptException, TimeoutException, \
-    UnexpectedAlertPresentException
+from selenium.common.exceptions import *
 
 
 class GetPRMessage:
@@ -124,7 +123,12 @@ class BotReport:
                   'Неверно найденный аккаунт:': BotReport.ACCOUNT_ERRORS,
                   'Превышено ожидание загрузки форума:': BotReport.TIMEOUT_ERRORS}
 
-        print(*(i for i, k in errors.items() if len(k) is not 0), sep='\b')
+        for key, value in errors.items():
+            if len(value) is not 0:
+                print(key, value)
+
+        print(f'Успешно пройдено форумов: {len(BotReport.SUCCESSFUL_FORUMS)} \n'
+              f'Было пропущено форумов: {BotReport.get_all_errors_len()}')
 
 
 class PrBot:
@@ -132,6 +136,11 @@ class PrBot:
 
     # получаем время старта скрипта
     start_time = time.time()
+
+    @staticmethod
+    def get_work_time():
+        time_export = round(round(time.time() - PrBot.start_time, 2) / 60)
+        print(f'Затрачено времени на выполнение (в минутах): {time_export}')
 
     def __init__(self, url, ancestor_forum, ancestor_pr_topic, pr_code, mark):
         # пустая переменная для текущей ссылки
@@ -181,7 +190,7 @@ class PrBot:
             try:
                 if self.first_enter():
                     self.go_to_forum()
-            except (LoginExceptions, NoSuchElementException):
+            except (LoginExceptions, NoSuchElementException, ElementClickInterceptedException):
                 print(f'На форуме {self.url} нет формы ответа, кода рекламы или картинки в последнем посте темы пиара')
                 BotReport.NO_ELEMENTS_ERRORS.append(self.url)
             except LinkError:
@@ -190,10 +199,13 @@ class PrBot:
             except NoAccountMessage:
                 print(f'На форуме {self.url} еще нет сообщений у этого аккаунта')
                 BotReport.ACCOUNT_ERRORS.append(self.url)
+            except TimeoutException:
+                print(f'Ошибка загрузки форума {self.url}')
+                BotReport.TIMEOUT_ERRORS.append(self.url)
+            except StopIteration:
+                print('Рекламная тема закончилась, необходима новая!')
+                BotReport.get_bot_report()
         else:
-            print(f'Успешно пройдено форумов: {len(BotReport.SUCCESSFUL_FORUMS)} \n'
-                  f'Было пропущено форумов: {BotReport.get_all_errors_len()}')
-
             BotReport.get_bot_report()
             PrBot.get_work_time()
             return True
@@ -215,16 +227,9 @@ class PrBot:
 
                 BotReport.SUCCESSFUL_FORUMS.append(self.url)
             else:
-                print('Закончилась рекламная тема на родительском форуме')
                 raise StopIteration
         else:
-            print(f'В шаблоне рекламы отсутствует ссылка на форум {self.url}')
             raise LinkError
-
-    @staticmethod
-    def get_work_time():
-        time_export = round(round(time.time() - PrBot.start_time, 2) / 60)
-        print(f'Затрачено времени на выполнение (в минутах): {time_export}')
 
     def go_to_ancestor_forum(self):
         """Переход к родительскому форуму"""
@@ -339,7 +344,7 @@ class PrBot:
         """Поиск профиля на форуме"""
         # ищем профиль
         try:
-            time.sleep(3)
+            # time.sleep(3)
             user_id = str(self.chrome.driver.execute_script("return (function() { return UserID }())"))
             self.user_id = user_id
             # проверка на валидность url
@@ -383,10 +388,8 @@ class PrBot:
         try:
             if self.chrome.driver.find_element_by_xpath(xpath_image) and self.chrome.driver.find_element_by_xpath(
                     xpath_code) and self.chrome.driver.find_element_by_xpath(form_answer):
-                print('Мы попали в рекламную тему на форуме ' + self.url)
                 return True
         except NoSuchElementException as ex:
-            print("Не найдена рекламная тема на форуме " + self.url)
             if self.url == self.ancestor_forum:
                 print('Мы не смогли зайти в родительский форум автоматически, необходима ссылка')
             else:
@@ -412,9 +415,10 @@ class NoAccountMessage(Exception):
     pass
 
 
-test = PrBot(['https://bombardo.rusff.me/'],
-             'http://freshair.rusff.me/',
-             'http://freshair.rusff.me/viewtopic.php?id=617&p=28',
-             '[align=center][url=http://freshair.rusff.me/][img]https://i.imgur.com/5Tx4D6F.png[/img][/url][/align]',
-             '[align=right][b][size=8]PR-бот[/size][/b][/align]')
-test.select_forum()
+if __name__ == 'main':
+    test = PrBot(["https://mayhem.rusff.me/"],
+                 'http://freshair.rusff.me/',
+                 'http://freshair.rusff.me/viewtopic.php?id=619&p=16',
+                 '[align=center][url=http://freshair.rusff.me/][img]https://i.imgur.com/5Tx4D6F.png[/img][/url][/align]',
+                 '[align=right][b][size=8]PR-бот[/size][/b][/align]')
+    test.select_forum()
