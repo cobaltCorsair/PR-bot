@@ -31,7 +31,7 @@ class GetPRMessage:
         """Проверяем наличие в шаблоне ссылки на текущий форум"""
         code = self.topic_post_html
         base_url = forum_url.split('://')[1]
-        data = base_url.split('/')[0]
+        data = base_url.split('/')[0].split('.')[0]
         if data in code:
             return True
 
@@ -241,8 +241,11 @@ class PrBot:
             self.to_start()
             # заход под рекламным аккаунтом
             self.url = self.ancestor_forum
-            # переход в рекламную тему на этом форуме
-            self.first_enter()
+            # переход в рекламный аккаунт на этом форуме
+            # для стандартного случая, раскомментировать
+            # self.first_enter()
+            # принудительный логин в необходимый аккаунт, закомментировать, если не нужен
+            self.forced_pr_login()
             return True
         except LoginExceptions:
             print('Ошибка входа в аккаунт на родительском форуме')
@@ -250,6 +253,26 @@ class PrBot:
     def to_start(self):
         """Быстрый переход на родительский форум"""
         self.chrome.driver.get(self.ancestor_forum)
+
+    def forced_pr_login(self):
+        """скрипт для принудительного входа в конкретный аккаунт"""
+        user_login = 'Ловец снов'
+        user_password = '105105'
+        # Входим на форум при помощи формы
+        forced_login = f'''
+        let form = '<form id="login" method="post" action="/login.php?action=in">\
+        <input type=\"hidden\" name=\"form_sent\" value="1" \>\
+        <input type=\"hidden" name="redirect_url" value="" \>\
+        <input type=\"text" name="req_username" maxlength="25" value="{user_login}"\>\
+        <input type=\"password" name="req_password" maxlength="16" value="{user_password}"\>\
+        <input type=\"submit\" class=\"button\" name=\"login\"/>\
+        </form>';
+
+        $("#navlogin").after(form);
+        $("#login input[type='submit']").click();
+        '''
+        self.chrome.driver.execute_script(forced_login)
+        self.get_profile_id()
 
     def choice_pr_account(self):
         """Функция, ищущая пиар-вход"""
@@ -297,6 +320,11 @@ class PrBot:
         self.chrome.driver.execute_script(script)
         return True
 
+    def check_guest(self):
+        group_id = str(self.chrome.driver.execute_script("return (function() { return GroupID }())"))
+        if group_id != '3':
+            return True
+
     def first_enter(self):
         """Цепочка вариантов для логина на форум"""
         results = self.choice_pr_account()
@@ -314,6 +342,9 @@ class PrBot:
             if self.try_login(logins[1]):
                 if not self.get_profile_id():
                     try:
+                        # TODO: необходимо добавить метод разлогина, если логин произошел, но не тот аккаунт
+                        if self.check_guest():
+                            self.forum_logout()
                         self.try_login(logins[2])
                         self.get_profile_id()
                         return True
@@ -327,6 +358,9 @@ class PrBot:
                 # если стандартный возвращает False, идем в двойной, в первый аккаунт
                 if not self.get_profile_id():
                     try:
+                        # TODO: необходимо добавить метод разлогина, если логин произошел, но не тот аккаунт
+                        if self.check_guest():
+                            self.forum_logout()
                         self.try_login(logins[1])
                         self.get_profile_id()
                         return True
@@ -335,6 +369,9 @@ class PrBot:
                 # если первый аккаунт озвращает False, идем во второй аккаунт
                 elif not self.get_profile_id():
                     try:
+                        # TODO: необходимо добавить метод разлогина, если логин произошел, но не тот аккаунт
+                        if self.check_guest():
+                            self.forum_logout()
                         self.try_login(logins[2])
                         self.get_profile_id()
                         return True
@@ -396,7 +433,6 @@ class PrBot:
             if self.url == self.ancestor_forum:
                 print('Мы не смогли зайти в родительский форум автоматически, необходима ссылка')
             else:
-                self.forum_logout()
                 return False
             raise LoginExceptions from ex
 
@@ -419,188 +455,277 @@ class NoAccountMessage(Exception):
 
 
 if __name__ == '__main__':
-    test = PrBot(["https://toeden.rusff.me"
-                  "https://neverdie.rusff.me"
-                  "https://chocolatte.rusff.me"
-                  "https://dreamcatcher.rusff.me"
-                  "https://1825.f-rpg.me"
-                  "https://summerchronicles.rusff.me"
-                  "https://arkhamstories.rusff.me"
-                  "https://wickedreign.rusff.me"
-                  "https://soullove.ru"
-                  "https://gosutowarudo.f-rpg.me"
-                  "https://cruciatuscurse.rusff.me"
-                  "https://vortex.rusff.me"
-                  "https://shelterme.rusff.me"
-                  "https://armoni.f-rpg.me"
-                  "https://eternal-game.ru"
-                  "https://skt.rolka.me"
-                  "https://vipersona.rusff.me"
-                  "https://clubofromance.rusff.me"
-                  "https://lib.rusff.me"
-                  "https://imaginacion.rusff.me"
-                  "https://grisha.rusff.me"
-                  "https://popitdontdropit.ru"
-                  "https://noname.rolbb.me"
-                  "https://crup.rusff.me"
-                  "https://crossvers.rusff.me"
-                  "https://bptst.rusff.me"
-                  "https://ravecross.rusff.me"
-                  "https://seoulsimulation.rusff.me"
-                  "https://galaxycrosstest.rusff.me"
-                  "https://blessthismess.rusff.me"
-                  "https://somaulte.rusff.me"
-                  "https://exlibris.rusff.me"
-                  "https://rains.rusff.me"
-                  "https://sacramentolife.ru"
-                  "https://tmi.f-rpg.me"
-                  "https://british.rusff.me"
-                  "https://themistfrpg.rusff.me"
-                  "https://tudym.hutt.live"
-                  "https://fourcross.rusff.me"
-                  "https://forcecross.ru"
-                  "https://timess.rusff.me"
-                  "https://yantar.rusff.me"
-                  "https://oakridge.rusff.me"
-                  "https://blindfaith.ru"
-                  "https://motsoul.ru"
-                  "https://fantalesofmarvel.rolbb.me"
-                  "https://totop.rolka.me"
-                  "https://padik.rusff.me"
-                  "https://repatriates.rusff.me"
-                  "https://camelot.rolbb.me"
-                  "https://domkyznechik.ru"
-                  "https://freshair.rusff.me"
-                  "https://ohcanada.rusff.me"
-                  "https://cgene.rusff.me"
-                  "https://zaolyn.ru"
-                  "https://moonshadows.ru"
-                  "https://pinotgrigio.rusff.me"
-                  "https://bujan.rusff.me"
-                  "https://bpht.rusff.me"
-                  "https://uts.rusff.me"
-                  "https://kingscross.f-rpg.me"
-                  "https://likeitseoul.rusff.me"
-                  "https://sideffect.rusff.me"
-                  "https://slowhere.ru"
-                  "https://chaostheory.f-rpg.me"
-                  "https://lgchronicles.f-rpg.me"
-                  "https://docnight.rusff.me"
-                  "https://maydaykorea.rusff.me"
-                  "https://symbiosis.rusff.me"
-                  "https://298.rusff.me"
-                  "https://minnesota.rusff.me"
-                  "https://kingdomtales.rusff.me"
-                  "https://mirine.rusff.me"
-                  "https://crossreturns.rusff.me"
-                  "https://memlane.rusff.me"
-                  "https://levelingup.rusff.me"
-                  "https://noname.rolbb.ru"
-                  "https://drinkbutterbeer.ru"
-                  "https://icyou.rusff.me"
-                  "https://bit.ly/3eWvinT"
-                  "https://eltropicanolife.rusff.me"
-                  "https://illusioncross.rusff.me"
-                  "https://fern.rusff.me"
-                  "https://infinitumcross.rusff.me"
-                  "https://whitepr.0pk.me"
-                  "https://ravenloft.f-rpg.ru"
-                  "https://ravenloft.f-rpg.me"
-                  "https://bostoncrazzy.rusff.me"
-                  "https://tvddownwardspiral.rusff.me"
-                  "https://theuntamed.ru"
-                  "https://modaozushi.rolbb.ru"
-                  "https://imperiumaeternum.rolka.me"
-                  "https://sherwood.rolka.me"
-                  "https://stasis.rusff.me"
-                  "https://kingdoms.hutt.live"
-                  "https://kingdoms.hutt.ru"
-                  "https://phoenixlament.f-rpg.me"
-                  "https://phoenixlament.f-rpg.ru"
-                  "https://reilan.ru"
-                  "https://insideout.mybb.ru"
-                  "https://swmedley.rusff.me"
-                  "https://1984.rolbb.me"
-                  "https://dclub.nc-21.ru"
-                  "https://somethingold.f-rpg.me"
-                  "https://curama.mybb.ru"
-                  "https://nodeath.rusff.me"
-                  "https://allnewmarvel.ru"
-                  "https://cities.rusff.me"
-                  "https://hproleplay.ru"
-                  "https://awakening.rolebb.ru"
-                  "https://doittest.rusff.me"
-                  "https://codevein.mybb.ru"
-                  "https://psinacrosstest.rusff.me"
-                  "https://kingscross.f-rpg.ru"
-                  "https://galaxycross.rusff.me"
-                  "https://crossfeeling.rusff.me"
-                  "https://zephyrion.f-rpg.me"
-                  "https://supernaturalhell.f-rpg.me"
-                  "https://goodtime.rusff.me"
-                  "https://weirdtales.rusff.me"
-                  "https://weirdtales.ru"
-                  "https://lightsout.f-rpg.me"
-                  "https://nightsurf.rusff.me"
-                  "https://supportme.rusff.me"
-                  "https://lexnulla.rusff.me"
-                  "https://sochi.rusff.me"
-                  "https://bombardamaxima.rusff.me"
-                  "https://oneway.rusff.me"
-                  "https://funeralrave.ru"
-                  "https://except-us.ru"
-                  "https://mayhem.rusff.me"
-                  "https://francexvii.rusff.me"
-                  "https://bnw.f-rpg.me"
-                  "https://krm.rusff.me"
-                  "https://hyperion.rusff.me"
-                  "https://finiteincantatem.rusff.me"
-                  "https://stigma.rusff.me"
-                  "https://lepidus.ru"
-                  "https://aenhanse.rolka.me"
-                  "https://lacommedia.rusff.me"
-                  "https://openboston.rusff.me"
-                  "https://chesare.magicrpg.ru"
-                  "https://andover.f-rpg.me"
-                  "https://acadia.rusff.me"
-                  "https://versus.rolka.me"
-                  "https://lysahora.rolka.me"
-                  "https://wands.rusff.me"
-                  "https://brightonlife.ru"
-                  "https://sibirsk.rusff.me"
-                  "https://hotspot.rusff.me"
-                  "https://sunandmoon.mybb.ru"
-                  "https://darkness.rolfor.me"
-                  "https://aukcepraha.rusff.me"
-                  "https://smpostblue.rusff.me"
-                  "https://modao.rolka.me"
-                  "https://artishock.rusff.me"
-                  "https://korean-academy.ru"
-                  "https://koreansearchams.rusff.me"
-                  "https://longliverock.rusff.me"
-                  "https://essenceofblood.ru"
-                  "https://onlyadventure.mybb.ru"
-                  "https://miyron.rolka.me"
-                  "https://thepilgrims.rusff.me"
-                  "https://incircles.rusff.me"
-                  "https://ouatuntold.rusff.me"
-                  "https://giventakentest.rusff.me"
-                  "https://betwixtcrossover.f-rpg.me"
-                  "https://urchoice.rolka.me"
-                  "https://hustle.rusff.me"
-                  "https://neversleeps.rusff.me"
-                  "https://dis.f-rpg.me"
-                  "https://hpfreakshow.rusff.me"
-                  "https://noctum.f-rpg.me"
-                  "https://scenario.rusff.me"
-                  "https://koreanacademy.ru"
-                  "https://itisanewworld.rusff.me"
-                  "https://musicalspace.rusff.me"
-                  "https://shel.rusff.me"
-                  "https://homecross.f-rpg.me"
-                  "https://newlegacy.ru"],
-                 'http://freshair.rusff.me/',
-                 'http://freshair.rusff.me/viewtopic.php?id=619&p=16',
-                 '[align=center][url=http://freshair.rusff.me/][img]https://i.imgur.com/5Tx4D6F.png[/img][/url][/align]',
-                 '[align=right][b][size=8]PR-бот[/size][/b][/align]')
+    test = PrBot([
+        "https://1984.rolbb.me",
+        "https://19centuryrussia.rusff.me",
+        "https://2028.rusff.me",
+        "https://298.rusff.me",
+        "https://acadia.rusff.me",
+        "https://aenhanse.rolka.su",
+        "https://ainhoa.anihub.ru",
+        "https://aljw.mybb.ru",
+        "https://allnewmarvel.ru",
+        "https://almarein.spybb.ru",
+        "https://andover.f-rpg.ru",
+        "https://arkhamstories.rusff.me",
+        "https://armoni.f-rpg.me",
+        "https://artishock.rusff.me",
+        "https://astep.rusff.me",
+        "https://asunai.anihub.ru",
+        "https://aukcepraha.rusff.me",
+        "https://awakening.rolebb.ru",
+        "https://bagbones.rusff.me",
+        "https://betwixtcrossover.f-rpg.ru",
+        "https://blessthismess.rusff.me",
+        "https://blindfaith.rusff.me",
+        "https://bnw.f-rpg.me",
+        "https://bombardamaxima.rusff.me",
+        "https://borgias.mybb.ru",
+        "https://bostoncrazzy.rusff.me",
+        "https://bpht.rusff.me",
+        "https://brave-world.ru",
+        "https://breakfastclub.rusff.me",
+        "https://brighton.mybb.ru",
+        "https://british.rusff.me",
+        "https://bujan.rusff.me",
+        "https://caineville.6bb.ru",
+        "https://camelot.rolbb.ru",
+        "https://capital-queen.ru",
+        "https://castlerockisland.rusff.me",
+        "https://cgeass.rusff.me",
+        "https://cgene.rusff.me",
+        "https://chaostheory.f-rpg.ru",
+        "https://chicagobynight.rusff.me",
+        "https://chocolatte.rusff.me",
+        "https://cities.rusff.me",
+        "https://closeenemy.rusff.me",
+        "https://clubofromance.rusff.me",
+        "https://codegeass.ru",
+        "https://codevein.mybb.ru",
+        "https://crising.rusff.me",
+        "https://crossfeeling.rusff.me",
+        "https://crossreturns.rusff.me",
+        "https://crossvers.rusff.me",
+        "https://cruciatuscurse.rusff.me",
+        "https://crup.rusff.me",
+        "https://curama.mybb.ru",
+        "https://cursedcreatures.f-rpg.ru",
+        "https://cwshelter.ru",
+        "https://cyrodiilfrpg.mybb.ru",
+        "https://daever.rolka.su",
+        "https://dark-fairy.ru",
+        "https://dclub.nc-21.ru",
+        "https://dgmkwr.mybb.ru",
+        "https://docnight.rusff.me",
+        "https://doittest.rusff.me",
+        "https://dragonageone.mybb.ru",
+        "https://dragonsempire.mybb.ru",
+        "https://dragonworld.f-rpg.me",
+        "https://dreamcatcher.rusff.me",
+        "https://drinkbutterbeer.rusff.me",
+        "https://eltropicanolife.rusff.me",
+        "https://enteros.rusff.me",
+        "https://equestriafim.forumrpg.ru",
+        "https://essenceofblood.rusff.me",
+        "https://except-us.ru",
+        "https://exlibris.rusff.me",
+        "https://explodingsnaps.mybb.ru",
+        "https://fantalesofmarvel.rolbb.ru",
+        "https://fap.mybb.ru",
+        "https://felicis.anihub.ru",
+        "https://fern.rusff.me",
+        "https://finiteincantatem.rusff.me",
+        "https://fkme.nc-21.ru",
+        "https://forumd.ru",
+        "https://fourcross.rusff.me",
+        "https://francexvii.rusff.me",
+        "https://freshair.rusff.me",
+        "https://funeralrave.rusff.me",
+        "https://galaxycross.rusff.me",
+        "https://geiger.rusff.me",
+        "https://glassdrop.rusff.me",
+        "https://goldenhour.rusff.me",
+        "https://gosutowarudo.f-rpg.me",
+        "https://grisha.rusff.me",
+        "https://harpy.rusff.me",
+        "https://hollowbones.rusff.me",
+        "https://holod.rusff.me",
+        "https://homecross.f-rpg.ru",
+        "https://homeostasis.rolevaya.com",
+        "https://hotspot.rusff.me",
+        "https://howlongisnow.rusff.me",
+        "https://hpfreakshow.rusff.me",
+        "https://hproleplay.ru",
+        "https://icyou.rusff.me",
+        "https://ignis.rolka.su",
+        "https://illusioncross.rusff.me",
+        "https://imagiart.ru",
+        "https://imaginacion.rusff.me",
+        "https://imperiumaeternum.rolka.su",
+        "https://infinitumcross.rusff.me",
+        "https://insideout.mybb.ru",
+        "https://irepublic.rusff.me",
+        "https://itisanewworld.rusff.me",
+        "https://jkisdead.rusff.me",
+        "https://kingdoms.hutt.ru",
+        "https://kingdomtales.rusff.me",
+        "https://kingscross.f-rpg.ru",
+        "https://kiri.rolka.su",
+        "https://korean-academy.ru",
+        "https://kteonor.mybb.ru",
+        "https://kusabi.mybb.ru",
+        "https://lacommedia.rusff.me",
+        "https://legendsneverdie.hutt.ru",
+        "https://lepidus.ru",
+        "https://levelingup.rusff.me",
+        "https://lib.rusff.me",
+        "https://liberum.f-rpg.me",
+        "https://likeitseoul.rusff.me",
+        "https://longliverock.rusff.me",
+        "https://luminary.f-rpg.ru",
+        "https://mafialand.rolevaya.com",
+        "https://magia.rusff.me",
+        "https://manhattanlife.ru",
+        "https://manifesto.rusff.me",
+        "https://manunkind.rusff.me",
+        "https://maydaykorea.rusff.me",
+        "https://mayhem.rusff.me",
+        "https://mchronicles.rusff.me",
+        "https://measurement.rusff.me",
+        "https://meinspace.rusff.me",
+        "https://memlane.rusff.me",
+        "https://mhshootme.rusff.me",
+        "https://miorline.rolevaya.ru",
+        "https://mirine.rusff.me",
+        "https://misterium-rpg.ru",
+        "https://modao.rolka.su",
+        "https://modaozushi.rolbb.ru",
+        "https://moonshadows.ru",
+        "https://morgana.academy",
+        "https://motsoul.ru",
+        "https://muhtesempire.rusff.me",
+        "https://musicalspace.rusff.me",
+        "https://narutoexile.ru",
+        "https://nevah.ru",
+        "https://neverdie.rusff.me",
+        "https://neversleeps.rusff.me",
+        "https://newyorkbynight.ru",
+        "https://nightsurf.rusff.me",
+        "https://noctum.f-rpg.me",
+        "https://nolf.rusff.me",
+        "https://nomoreutopia.rusff.me",
+        "https://ohcanada.rusff.me",
+        "https://oneway.rusff.me",
+        "https://onlineroleplay.rusff.me",
+        "https://onlyadventure.mybb.ru",
+        "https://openboston.rusff.me",
+        "https://others.rusff.me",
+        "https://ouatuntold.rusff.me",
+        "https://outerspace.rusff.me",
+        "https://padik.rusff.me",
+        "https://paris.f-rpg.ru",
+        "https://pathologic.f-rpg.ru",
+        "https://phoenixlament.f-rpg.ru",
+        "https://pilgrimhotel.rolebb.ru",
+        "https://postfactum.rusff.me",
+        "https://psinacrosstest.rusff.me",
+        "https://rains.rusff.me",
+        "https://ravecross.rusff.me",
+        "https://reilana.mybb.ru",
+        "https://rempetnewstory.rusff.me",
+        "https://repatriates.rusff.me",
+        "https://replay.rusff.me",
+        "https://romanceclub.f-rpg.ru",
+        "https://rpginuyasha.7fi.ru",
+        "https://rpgslayers.7bk.ru",
+        "https://rusmagic.rusff.me",
+        "https://sabbathage.rolka.su",
+        "https://sacramentolife.ru",
+        "https://salaamnamaste.rusff.me",
+        "https://sc.roleforum.ru",
+        "https://scaoil.ru",
+        "https://sedov.rusff.me",
+        "https://senros.rusff.me",
+        "https://seoulsimulation.rusff.me",
+        "https://sexyfantasy.rolka.su",
+        "https://shardsofpower.rolka.su",
+        "https://shel.rusff.me",
+        "https://shelterme.rusff.me",
+        "https://sherlock.rusff.me",
+        "https://sherwood.rolka.su",
+        "https://sibirsk.rusff.me",
+        "https://sideffect.rusff.me",
+        "https://skt.rolka.me",
+        "https://slowhere.ru",
+        "https://smgg.igraemroli.ru",
+        "https://smpostblue.rusff.me",
+        "https://sochi.rusff.me",
+        "https://somaulte.rusff.me",
+        "https://somethingold.f-rpg.me",
+        "https://songsofnirn.rusff.me",
+        "https://soullove.0pk.ru",
+        "https://stadt.f-rpg.ru",
+        "https://starwarstiu.mybb.ru",
+        "https://stasis.rusff.me",
+        "https://stayalive.rolfor.ru",
+        "https://stigma.rusff.me",
+        "https://strannic.mybb.ru",
+        "https://suafata.f-rpg.me",
+        "https://sueta.rusff.me",
+        "https://summerchronicles.rusff.me",
+        "https://supernaturalhell.f-rpg.me",
+        "https://supportme.rusff.me",
+        "https://swipe.rusff.me",
+        "https://swmedley.rusff.me",
+        "https://swordcoast.rusff.me",
+        "https://symbiosis.rusff.me",
+        "https://the100ac.rusff.me",
+        "https://theancientworld.rusff.me",
+        "https://thecityandthecity.rusff.me",
+        "https://themistfrpg.rusff.me",
+        "https://themostsupernatural.ru",
+        "https://thepilgrims.rusff.me",
+        "https://therapysession.rusff.me",
+        "https://thewalkingdead.f-rpg.ru",
+        "https://thewitcher.f-rpg.ru",
+        "https://timess.rusff.me",
+        "https://timetocross.rusff.me",
+        "https://tmi.f-rpg.ru",
+        "https://toeden.rusff.me",
+        "https://totop.rolka.su",
+        "https://tvddownwardspiral.rusff.me",
+        "https://twelvekingdoms.9bb.ru",
+        "https://twilightsugame.rusff.me",
+        "https://urchoice.rolka.su",
+        "https://urhome.rusff.me",
+        "https://uts.rusff.me",
+        "https://versus.rolka.su",
+        "https://victorians.mybb.ru",
+        "https://vipersona.rusff.me",
+        "https://vortex.rusff.me",
+        "https://waldmond.f-rpg.ru",
+        "https://warriorscats.1bb.ru",
+        "https://wbd.mybb.ru",
+        "https://wearethefuture.rusff.me",
+        "https://weirdtales.rusff.me",
+        "https://whatheydo.rusff.me",
+        "https://whitepr.0pk.ru",
+        "https://wickedreign.rusff.me",
+        "https://winxclubnew.mybb.ru",
+        "https://wolves.roleforum.ru",
+        "https://wwft.rusff.me",
+        "https://www.spacewind.su/rpg",
+        "https://yantar.rusff.me",
+        "https://yaoipir.mybb.ru",
+        "https://yellowcross.f-rpg.ru",
+        "https://yourbalance.rusff.me",
+        "https://yourphoenix.rusff.me",
+        "https://zephyrion.f-rpg.me",
+        "https://forcecross.ru"
+    ],
+                 'https://dis.f-rpg.me/',
+                 'https://dis.f-rpg.me/viewtopic.php?id=495',
+                 """[align=center][url=https://dis.f-rpg.me/][img]https://forumstatic.ru/files/001a/e7/ed/42460.png[/img][/url]
+[url=https://dis.f-rpg.me/viewtopic.php?id=105][b]упрощенный приём[/b][/url] • [url=https://dis.f-rpg.me/viewtopic.php?id=4][b]сюжет[/b][/url] • [url=https://dis.f-rpg.me/viewtopic.php?id=12][b]расы[/b][/url] • [url=https://dis.f-rpg.me/viewtopic.php?id=24][b]гостевая[/b][/url][/align]""",
+                 '')
     test.select_forum()
