@@ -342,7 +342,6 @@ class PrBot:
             if self.try_login(logins[1]):
                 if not self.get_profile_id():
                     try:
-                        # TODO: необходимо добавить метод разлогина, если логин произошел, но не тот аккаунт
                         if self.check_guest():
                             self.forum_logout()
                         self.try_login(logins[2])
@@ -358,7 +357,6 @@ class PrBot:
                 # если стандартный возвращает False, идем в двойной, в первый аккаунт
                 if not self.get_profile_id():
                     try:
-                        # TODO: необходимо добавить метод разлогина, если логин произошел, но не тот аккаунт
                         if self.check_guest():
                             self.forum_logout()
                         self.try_login(logins[1])
@@ -369,7 +367,6 @@ class PrBot:
                 # если первый аккаунт озвращает False, идем во второй аккаунт
                 elif not self.get_profile_id():
                     try:
-                        # TODO: необходимо добавить метод разлогина, если логин произошел, но не тот аккаунт
                         if self.check_guest():
                             self.forum_logout()
                         self.try_login(logins[2])
