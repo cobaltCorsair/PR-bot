@@ -24,15 +24,25 @@ class GetPRMessage:
     def get_pr_code(self):
         """Получаем шаблон рекламы на дочернем форуме"""
         topic_post = self.driver.find_element_by_class_name('topicpost')
-        self.topic_post_html = topic_post.find_element_by_xpath("//pre").get_attribute("innerHTML")
+        topic_post_html = topic_post.find_elements_by_xpath("//pre")
+        inner_sources = [i.get_attribute("innerHTML") for i in topic_post_html]
+        self.topic_post_html = inner_sources[0]
+        GetPRMessage.get_all_codes(inner_sources)
         return True
 
+    @staticmethod
+    def get_all_codes(inner_sources):
+        """Дополнительное тестирование на то, что тема - не для заключения партнерства"""
+        html_code = '&lt;/a&gt;'
+        for i in inner_sources:
+            if html_code in i:
+                raise PartnershipTheme
+
     def checking_html(self, forum_url):
-        """Проверяем наличие в шаблоне ссылки на текущий форум"""
-        code = self.topic_post_html
+        """Проверяем наличие в шаблоне ссылки на текущий форум  и отсутствия тегов"""
         base_url = forum_url.split('://')[1]
         data = base_url.split('/')[0].split('.')[0]
-        if data in code:
+        if data in self.topic_post_html and '&lt;/' not in data:
             return True
 
     def paste_pr_code(self):
@@ -196,7 +206,7 @@ class PrBot:
             except (NoSuchElementException, ElementClickInterceptedException, ElementNotInteractableException):
                 print(f'На форуме {self.url} не отображаются элементы дизайна')
                 BotReport.NO_ELEMENTS_ERRORS.append(self.url)
-            except LinkError:
+            except (LinkError, PartnershipTheme):
                 print(f'Тема форума {self.url} не прошла проверку на то, что она рекламная')
                 BotReport.WRONG_THEME_ERRORS.append(self.url)
             except NoAccountMessage:
@@ -451,8 +461,13 @@ class NoAccountMessage(Exception):
     pass
 
 
+class PartnershipTheme(Exception):
+    pass
+
+
 if __name__ == '__main__':
     test = PrBot([
+        "https://narutoexile.ru/",
         "https://1984.rolbb.me",
         "https://19centuryrussia.rusff.me",
         "https://2028.rusff.me",
@@ -602,7 +617,6 @@ if __name__ == '__main__':
         "https://motsoul.ru",
         "https://muhtesempire.rusff.me",
         "https://musicalspace.rusff.me",
-        "https://narutoexile.ru",
         "https://nevah.ru",
         "https://neverdie.rusff.me",
         "https://neversleeps.rusff.me",
@@ -640,7 +654,6 @@ if __name__ == '__main__':
         "https://sacramentolife.ru",
         "https://salaamnamaste.rusff.me",
         "https://sc.roleforum.ru",
-        "https://scaoil.ru",
         "https://sedov.rusff.me",
         "https://senros.rusff.me",
         "https://seoulsimulation.rusff.me",
@@ -720,9 +733,9 @@ if __name__ == '__main__':
         "https://zephyrion.f-rpg.me",
         "https://forcecross.ru"
     ],
-                 'https://dis.f-rpg.me/',
-                 'https://dis.f-rpg.me/viewtopic.php?id=495',
-                 """[align=center][url=https://dis.f-rpg.me/][img]https://forumstatic.ru/files/001a/e7/ed/42460.png[/img][/url]
+        'https://dis.f-rpg.me/',
+        'https://dis.f-rpg.me/viewtopic.php?id=496',
+        """[align=center][url=https://dis.f-rpg.me/][img]https://forumstatic.ru/files/001a/e7/ed/53333.png[/img][/url]
 [url=https://dis.f-rpg.me/viewtopic.php?id=105][b]упрощенный приём[/b][/url] • [url=https://dis.f-rpg.me/viewtopic.php?id=4][b]сюжет[/b][/url] • [url=https://dis.f-rpg.me/viewtopic.php?id=12][b]расы[/b][/url] • [url=https://dis.f-rpg.me/viewtopic.php?id=24][b]гостевая[/b][/url][/align]""",
-                 '')
+        '')
     test.select_forum()
