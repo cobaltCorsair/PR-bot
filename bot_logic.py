@@ -30,6 +30,16 @@ class GetPRMessage:
         GetPRMessage.get_all_codes(inner_sources)
         return True
 
+    def check_previous_pr(self, forum_url):
+        """Проверка на наличие рекламы на последней странице темы"""
+        all_post_on_page = self.driver.find_elements_by_class_name('post-content')
+        inner_sources = [i.get_attribute("innerHTML") for i in all_post_on_page]
+        for i in inner_sources:
+            if forum_url in inner_sources:
+                return False
+            else:
+                return True
+
     @staticmethod
     def get_all_codes(inner_sources):
         """Дополнительное тестирование на то, что тема - не для заключения партнерства"""
@@ -42,7 +52,7 @@ class GetPRMessage:
         """Проверяем наличие в шаблоне ссылки на текущий форум  и отсутствия тегов"""
         base_url = forum_url.split('://')[1]
         data = base_url.split('/')[0].split('.')[0]
-        if data in self.topic_post_html and '&lt;/' not in data:
+        if data in self.topic_post_html and '&lt;/' not in self.topic_post_html:
             return True
 
     def paste_pr_code(self):
@@ -117,12 +127,13 @@ class BotReport:
     WRONG_THEME_ERRORS = []
     ACCOUNT_ERRORS = []
     TIMEOUT_ERRORS = []
+    PR_POST_HAS_ALREADY = []
 
     @staticmethod
     def get_all_errors_len():
         """Получаем сумму проигнорированных форумов"""
         result = [BotReport.NO_ELEMENTS_ERRORS, BotReport.WRONG_THEME_ERRORS,
-                  BotReport.ACCOUNT_ERRORS, BotReport.TIMEOUT_ERRORS]
+                  BotReport.ACCOUNT_ERRORS, BotReport.TIMEOUT_ERRORS, BotReport.PR_POST_HAS_ALREADY]
         lens = map(len, result)
         return sum(lens)
 
@@ -131,7 +142,8 @@ class BotReport:
         errors = {'Не найдена форма ответа/картинка в последнем посте/код рекламы:': BotReport.NO_ELEMENTS_ERRORS,
                   'Недостоверная ссылка в теме:': BotReport.WRONG_THEME_ERRORS,
                   'Неверно найденный аккаунт:': BotReport.ACCOUNT_ERRORS,
-                  'Превышено ожидание загрузки форума:': BotReport.TIMEOUT_ERRORS}
+                  'Превышено ожидание загрузки форума:': BotReport.TIMEOUT_ERRORS,
+                  'Реклама уже есть на последней старнице темы:': BotReport.PR_POST_HAS_ALREADY}
 
         for key, value in errors.items():
             if len(value) is not 0:
@@ -215,6 +227,9 @@ class PrBot:
             except TimeoutException:
                 print(f'Ошибка загрузки форума {self.url}')
                 BotReport.TIMEOUT_ERRORS.append(self.url)
+            except OldPrPostCheck:
+                print('Реклама уже есть на последней странице')
+                BotReport.PR_POST_HAS_ALREADY.append(self.url)
             except StopIteration:
                 print('Рекламная тема закончилась, необходима новая!')
                 BotReport.get_bot_report()
@@ -227,22 +242,26 @@ class PrBot:
         """Переход в рекламную тему на этом форуме"""
         p = GetPRMessage(self.chrome.driver, self.pr_code, self.mark)
         p.get_pr_code()
-        if p.checking_html(self.url):
-            self.chrome.driver.switch_to.window(self.chrome.window_before)
-            # проверяем, активна ли форма ответа на родительском форуме
-            if self.chrome.driver.find_element_by_xpath("//*[@id='main-reply']"):
-                p.paste_pr_code()
-                p.post_to_forum()
-                p.get_post_link()
-                self.chrome.driver.switch_to.window(self.chrome.window_after)
-                p.post_pr_code_with_link()
-                p.post_to_forum()
+        if p.check_previous_pr(self.url):
+            # проверяем, есть ли наша реклама на последней странице темы
+            if p.checking_html(self.url):
+                self.chrome.driver.switch_to.window(self.chrome.window_before)
+                # проверяем, активна ли форма ответа на родительском форуме
+                if self.chrome.driver.find_element_by_xpath("//*[@id='main-reply']"):
+                    p.paste_pr_code()
+                    p.post_to_forum()
+                    p.get_post_link()
+                    self.chrome.driver.switch_to.window(self.chrome.window_after)
+                    p.post_pr_code_with_link()
+                    p.post_to_forum()
 
-                BotReport.SUCCESSFUL_FORUMS.append(self.url)
+                    BotReport.SUCCESSFUL_FORUMS.append(self.url)
+                else:
+                    raise StopIteration
             else:
-                raise StopIteration
+                raise LinkError
         else:
-            raise LinkError
+            raise OldPrPostCheck
 
     def go_to_ancestor_forum(self):
         """Переход к родительскому форуму"""
@@ -465,9 +484,12 @@ class PartnershipTheme(Exception):
     pass
 
 
+class OldPrPostCheck(Exception):
+    pass
+
+
 if __name__ == '__main__':
     test = PrBot([
-        "https://narutoexile.ru/",
         "https://1984.rolbb.me",
         "https://19centuryrussia.rusff.me",
         "https://2028.rusff.me",
@@ -529,7 +551,6 @@ if __name__ == '__main__':
         "https://dclub.nc-21.ru",
         "https://dgmkwr.mybb.ru",
         "https://docnight.rusff.me",
-        "https://doittest.rusff.me",
         "https://dragonageone.mybb.ru",
         "https://dragonsempire.mybb.ru",
         "https://dragonworld.f-rpg.me",
@@ -537,7 +558,6 @@ if __name__ == '__main__':
         "https://drinkbutterbeer.rusff.me",
         "https://eltropicanolife.rusff.me",
         "https://enteros.rusff.me",
-        "https://equestriafim.forumrpg.ru",
         "https://essenceofblood.rusff.me",
         "https://except-us.ru",
         "https://exlibris.rusff.me",
@@ -613,8 +633,6 @@ if __name__ == '__main__':
         "https://modao.rolka.su",
         "https://modaozushi.rolbb.ru",
         "https://moonshadows.ru",
-        "https://morgana.academy",
-        "https://motsoul.ru",
         "https://muhtesempire.rusff.me",
         "https://musicalspace.rusff.me",
         "https://nevah.ru",
@@ -705,7 +723,6 @@ if __name__ == '__main__':
         "https://totop.rolka.su",
         "https://tvddownwardspiral.rusff.me",
         "https://twelvekingdoms.9bb.ru",
-        "https://twilightsugame.rusff.me",
         "https://urchoice.rolka.su",
         "https://urhome.rusff.me",
         "https://uts.rusff.me",
@@ -731,7 +748,11 @@ if __name__ == '__main__':
         "https://yourbalance.rusff.me",
         "https://yourphoenix.rusff.me",
         "https://zephyrion.f-rpg.me",
-        "https://forcecross.ru"
+        "https://forcecross.ru",
+        "https://lightsout.f-rpg.me",
+        "https://simpledimple.rusff.me",
+        "https://vraiven.rusff.me",
+        "https://goodtime.rusff.me"
     ],
         'https://dis.f-rpg.me/',
         'https://dis.f-rpg.me/viewtopic.php?id=496',
