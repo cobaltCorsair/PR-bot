@@ -35,10 +35,9 @@ class GetPRMessage:
         all_post_on_page = self.driver.find_elements_by_class_name('post-content')
         inner_sources = [i.get_attribute("innerHTML") for i in all_post_on_page]
         for i in inner_sources:
-            if forum_url in inner_sources:
+            if forum_url in i:
                 return False
-            else:
-                return True
+        return True
 
     @staticmethod
     def get_all_codes(inner_sources):
@@ -242,7 +241,7 @@ class PrBot:
         """Переход в рекламную тему на этом форуме"""
         p = GetPRMessage(self.chrome.driver, self.pr_code, self.mark)
         p.get_pr_code()
-        if p.check_previous_pr(self.url):
+        if p.check_previous_pr(self.ancestor_forum):
             # проверяем, есть ли наша реклама на последней странице темы
             if p.checking_html(self.url):
                 self.chrome.driver.switch_to.window(self.chrome.window_before)
@@ -756,7 +755,7 @@ if __name__ == '__main__':
     ],
         'https://dis.f-rpg.me/',
         'https://dis.f-rpg.me/viewtopic.php?id=496',
-        """[align=center][url=https://dis.f-rpg.me/][img]https://forumstatic.ru/files/001a/e7/ed/53333.png[/img][/url]
+        """[align=center][url=https://dis.f-rpg.me/][img]https://forumstatic.ru/files/001a/e7/ed/57383.png[/img][/url]
 [url=https://dis.f-rpg.me/viewtopic.php?id=105][b]упрощенный приём[/b][/url] • [url=https://dis.f-rpg.me/viewtopic.php?id=4][b]сюжет[/b][/url] • [url=https://dis.f-rpg.me/viewtopic.php?id=12][b]расы[/b][/url] • [url=https://dis.f-rpg.me/viewtopic.php?id=24][b]гостевая[/b][/url][/align]""",
         '')
     test.select_forum()
