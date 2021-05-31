@@ -25,15 +25,21 @@ class GetPRMessage:
         """Получаем шаблон рекламы на дочернем форуме"""
         topic_post = self.driver.find_element_by_xpath(".//div[contains(@class,'topicpost')]//*[contains(@class, 'code-box')]")
         topic_post_html = topic_post.find_elements_by_xpath("//pre")
-        inner_sources = [i.get_attribute("innerHTML") for i in topic_post_html]
+        inner_sources = [i.get_attribute('innerHTML') for i in topic_post_html]
         self.topic_post_html = inner_sources[0]
         GetPRMessage.get_all_codes(inner_sources)
         return True
 
     def check_previous_pr(self, forum_url):
         """Проверка на наличие рекламы на последней странице темы"""
+        all_page_numbers = self.driver.find_elements_by_css_selector('.pagelink > a')
+        url_list = [i.get_attribute('href') for i in all_page_numbers]
+        next_page = self.driver.find_elements_by_css_selector('.pagelink > a.next')
+        if next_page:
+            last_page = url_list[-2]
+            self.driver.get(last_page)
         all_post_on_page = self.driver.find_elements_by_class_name('post-content')
-        inner_sources = [i.get_attribute("innerHTML") for i in all_post_on_page]
+        inner_sources = [i.get_attribute('innerHTML') for i in all_post_on_page]
         for i in inner_sources:
             if forum_url in i:
                 return False
@@ -742,23 +748,27 @@ if __name__ == '__main__':
         # "https://wolves.roleforum.ru",
         # "https://wwft.rusff.me",
         # "https://yantar.rusff.me",
-        # "https://yaoipir.mybb.ru",
+        # "https://domzabveniya.ru",
         # "https://yellowcross.f-rpg.ru",
         # "https://yourbalance.rusff.me",
         # "https://yourphoenix.rusff.me",
         # "https://forcecross.ru",
         # "https://lightsout.f-rpg.me",
         # "https://simpledimple.rusff.me",
-        "https://vraiven.rusff.me",
-        "https://goodtime.rusff.me",
-        "https://razvod.rusff.me",
-        "https://e666yn.f-rpg.me",
-        "https://utoptest.rusff.me",
-        "https://staffage.rusff.me",
-        "https://tmi.f-rpg.me"
+        # "https://vraiven.rusff.me",
+        # "https://goodtime.rusff.me",
+        # "https://razvod.rusff.me",
+        # "https://e666yn.f-rpg.me",
+        # "https://utoptest.rusff.me",
+        # "https://staffage.rusff.me",
+        # "https://crisscross.f-rpg.me",
+        # "https://shardsofpower.rolka.me",
+        # "https://smpostblue.rusff.me",
+        # "https://ignis.rolka.me",
+        "https://barcross.rusff.me"
     ],
-        'https://dis.f-rpg.me/',
-        'https://dis.f-rpg.me/viewtopic.php?id=498',
+        'https://dis.f-rpg.me',
+        'https://dis.f-rpg.me/viewtopic.php?id=502',
         """[align=center][url=https://dis.f-rpg.me/][img]https://forumstatic.ru/files/001a/e7/ed/30940.png[/img][/url]
 [url=https://dis.f-rpg.me/viewtopic.php?id=105][b]упрощенный приём[/b][/url] • [url=https://dis.f-rpg.me/viewtopic.php?id=4][b]сюжет[/b][/url] • [url=https://dis.f-rpg.me/viewtopic.php?id=12][b]расы[/b][/url] • [url=https://dis.f-rpg.me/viewtopic.php?id=24][b]гостевая[/b][/url][/align]""",
         '')
