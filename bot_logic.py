@@ -240,6 +240,9 @@ class PrBot:
             except StopIteration:
                 print('Рекламная тема закончилась, необходима новая!')
                 BotReport.get_bot_report()
+            except JavascriptException:
+                print(f'Возникли проблемы со скриптом пиар-фхода на форуме {self.url}')
+                BotReport.ACCOUNT_ERRORS.append(self.url)
         else:
             BotReport.get_bot_report()
             PrBot.get_work_time()
