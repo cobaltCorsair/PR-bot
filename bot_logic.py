@@ -765,11 +765,12 @@ if __name__ == '__main__':
         "https://crisscross.f-rpg.me",
         "https://smpostblue.rusff.me",
         "https://ignis.rolka.me",
-        "https://barcross.rusff.me"
+        "https://barcross.rusff.me",
+        "https://popitdontdropit.ru"
     ],
         'https://dis.f-rpg.me',
-        'https://dis.f-rpg.me/viewtopic.php?id=502',
-        """[align=center][url=https://dis.f-rpg.me/][img]https://forumstatic.ru/files/001a/e7/ed/98632.png[/img][/url]
+        'https://dis.f-rpg.me/viewtopic.php?id=503',
+        """[align=center][url=https://dis.f-rpg.me/][img]https://forumstatic.ru/files/001a/e7/ed/61792.png[/img][/url]
 [url=https://dis.f-rpg.me/viewtopic.php?id=105][b]упрощенный приём[/b][/url] • [url=https://dis.f-rpg.me/viewtopic.php?id=4][b]сюжет[/b][/url] • [url=https://dis.f-rpg.me/viewtopic.php?id=12][b]расы[/b][/url] • [url=https://dis.f-rpg.me/viewtopic.php?id=24][b]гостевая[/b][/url][/align]""",
         '')
     test.select_forum()
