@@ -258,6 +258,7 @@ class PrBot:
                 self.chrome.driver.switch_to.window(self.chrome.window_before)
                 # проверяем, активна ли форма ответа на родительском форуме
                 if self.chrome.driver.find_element_by_xpath("//*[@id='main-reply']"):
+                    # TODO: Проверить, почему неактивна остановка при заполнении темы
                     p.paste_pr_code()
                     p.post_to_forum()
                     p.get_post_link()
@@ -531,7 +532,6 @@ if __name__ == '__main__':
         "https://breakfastclub.rusff.me",
         "https://brighton.mybb.ru",
         "https://british.rusff.me",
-        "https://bujan.rusff.me",
         "https://caineville.6bb.ru",
         "https://camelot.rolbb.ru",
         "https://capital-queen.ru",
@@ -586,7 +586,6 @@ if __name__ == '__main__':
         "https://galaxycross.rusff.me",
         "https://geiger.rusff.me",
         "https://glassdrop.rusff.me",
-        "https://goldenhour.rusff.me",
         "https://gosutowarudo.f-rpg.me",
         "https://grisha.rusff.me",
         "https://harpy.rusff.me",
@@ -604,7 +603,6 @@ if __name__ == '__main__':
         "https://imagiart.ru",
         "https://imaginacion.rusff.me",
         "https://imperiumaeternum.rolka.su",
-        "https://infinitumcross.rusff.me",
         "https://insideout.mybb.ru",
         "https://irepublic.rusff.me",
         "https://itisanewworld.rusff.me",
@@ -613,7 +611,6 @@ if __name__ == '__main__':
         "https://kingdomtales.rusff.me",
         "https://kingscross.f-rpg.ru",
         "https://kiri.rolka.su",
-        "https://korean-academy.ru",
         "https://kteonor.mybb.ru",
         "https://kusabi.mybb.ru",
         "https://lacommedia.rusff.me",
@@ -622,12 +619,10 @@ if __name__ == '__main__':
         "https://levelingup.rusff.me",
         "https://lib.rusff.me",
         "https://liberum.f-rpg.me",
-        "https://likeitseoul.rusff.me",
         "https://longliverock.rusff.me",
         "https://luminary.f-rpg.ru",
         "https://mafialand.rolevaya.com",
         "https://magia.rusff.me",
-        "https://manhattanlife.ru",
         "https://manifesto.rusff.me",
         "https://manunkind.rusff.me",
         "https://maydaykorea.rusff.me",
@@ -665,7 +660,6 @@ if __name__ == '__main__':
         "https://paris.f-rpg.ru",
         "https://pathologic.f-rpg.ru",
         "https://phoenixlament.f-rpg.ru",
-        "https://pilgrimhotel.rolebb.ru",
         "https://postfactum.rusff.me",
         "https://psinacrosstest.rusff.me",
         "https://rains.rusff.me",
@@ -708,7 +702,6 @@ if __name__ == '__main__':
         "https://stayalive.rolfor.ru",
         "https://stigma.rusff.me",
         "https://strannic.mybb.ru",
-        "https://suafata.f-rpg.me",
         "https://sueta.rusff.me",
         "https://summerchronicles.rusff.me",
         "https://supernaturalhell.f-rpg.me",
@@ -762,18 +755,22 @@ if __name__ == '__main__':
         "https://vraiven.rusff.me",
         "https://goodtime.rusff.me",
         "https://razvod.rusff.me",
-        "https://e666yn.f-rpg.me",
-        "https://utoptest.rusff.me",
         "https://staffage.rusff.me",
         "https://crisscross.f-rpg.me",
         "https://smpostblue.rusff.me",
         "https://ignis.rolka.me",
         "https://barcross.rusff.me",
-        "https://popitdontdropit.ru"
+        "https://popitdontdropit.ru",
+        "https://dystopia.0pk.me",
+        "https://mimblewimble.rusff.me",
+        "https://blacksunwatch.rusff.me",
+        "https://utopiacross.rusff.me",
+        "https://yohohopirate.mybb.ru",
+        "https://crossivo.rusff.me"
     ],
         'https://dis.f-rpg.me',
         'https://dis.f-rpg.me/viewtopic.php?id=503',
-        """[align=center][url=https://dis.f-rpg.me/][img]https://forumstatic.ru/files/001a/e7/ed/61792.png[/img][/url]
-[url=https://dis.f-rpg.me/viewtopic.php?id=105][b]упрощенный приём[/b][/url] • [url=https://dis.f-rpg.me/viewtopic.php?id=4][b]сюжет[/b][/url] • [url=https://dis.f-rpg.me/viewtopic.php?id=12][b]расы[/b][/url] • [url=https://dis.f-rpg.me/viewtopic.php?id=24][b]гостевая[/b][/url][/align]""",
+        """[align=center][url=https://dis.f-rpg.me/][img]https://forumstatic.ru/files/001a/e7/ed/50739.png[/img][/url]
+[url=https://dis.f-rpg.me/viewtopic.php?id=26][b]ищу персонажа[/b][/url] • [url=https://dis.f-rpg.me/viewtopic.php?id=4][b]сюжет[/b][/url] • [url=https://dis.f-rpg.me/viewtopic.php?id=12][b]расы[/b][/url] • [url=https://dis.f-rpg.me/viewforum.php?id=2][b]гостевая[/b][/url][/align]""",
         '')
     test.select_forum()
