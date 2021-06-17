@@ -23,7 +23,8 @@ class GetPRMessage:
 
     def get_pr_code(self):
         """Получаем шаблон рекламы на дочернем форуме"""
-        topic_post = self.driver.find_element_by_xpath(".//div[contains(@class,'topicpost')]//*[contains(@class, 'code-box')]")
+        topic_post = self.driver.find_element_by_xpath(".//div[contains(@class,'topicpost')]//*[contains(@class, "
+                                                       "'code-box')]")
         topic_post_html = topic_post.find_elements_by_xpath("//pre")
         inner_sources = [i.get_attribute('innerHTML') for i in topic_post_html]
         self.topic_post_html = inner_sources[0]
@@ -469,8 +470,7 @@ class PrBot:
                     xpath_code) and self.chrome.driver.find_element_by_xpath(form_answer):
                 return True
         except NoSuchElementException as ex:
-            # TODO: Протестировать момент с автовходом при отсутствии формы ответа на родительском форуме
-            if self.url == self.ancestor_forum:
+            if self.url == self.ancestor_forum + '/' if self.ancestor_forum[-1] != '/' else self.ancestor_forum:
                 print('Мы не смогли зайти в родительский форум автоматически, необходима ссылка')
             else:
                 return False
@@ -663,7 +663,7 @@ if __name__ == '__main__':
         "https://pathologic.f-rpg.ru",
         "https://phoenixlament.f-rpg.ru",
         "https://postfactum.rusff.me",
-        "https://psinacrosstest.rusff.me",
+        "https://shakalcross.ru",
         "https://rains.rusff.me",
         "https://ravecross.rusff.me",
         "https://reilana.mybb.ru",
@@ -712,7 +712,6 @@ if __name__ == '__main__':
         "https://swmedley.rusff.me",
         "https://swordcoast.rusff.me",
         "https://symbiosis.rusff.me",
-        "https://the100ac.rusff.me",
         "https://theancientworld.rusff.me",
         "https://thecityandthecity.rusff.me",
         "https://themistfrpg.rusff.me",
@@ -765,15 +764,23 @@ if __name__ == '__main__':
         "https://mimblewimble.rusff.me",
         "https://blacksunwatch.rusff.me",
         "https://utopiacross.rusff.me",
-        "https://crossivo.rusff.me",
         "https://cosmogods.rusff.me",
         "https://rainyday.rolbb.me",
         "https://acciotest.rusff.me",
         "https://1825.f-rpg.me",
-        "https://maleficorum.f-rpg.me"
+        "https://maleficorum.f-rpg.me",
+        "https://gemcross.rusff.me",
+        "https://eq.mybb.ru",
+        "https://gthc.ru",
+        "https://sab.rusff.me",
+        "https://forcecross.ru",
+        "https://relentless.rusff.me",
+        "https://whatif.rolbb.me"
+        "https://lgchronicles.f-rpg.me",
+        "https://wizardinghogwarts.ru"
     ],
         'https://dis.f-rpg.me',
-        'https://dis.f-rpg.me/viewtopic.php?id=505',
+        'https://dis.f-rpg.me/viewtopic.php?id=508',
         """[align=center][url=https://dis.f-rpg.me/][img]https://forumstatic.ru/files/001a/e7/ed/50739.png[/img][/url]
 [url=https://dis.f-rpg.me/viewtopic.php?id=26][b]ищу персонажа[/b][/url] • [url=https://dis.f-rpg.me/viewtopic.php?id=4][b]сюжет[/b][/url] • [url=https://dis.f-rpg.me/viewtopic.php?id=12][b]расы[/b][/url] • [url=https://dis.f-rpg.me/viewforum.php?id=2][b]гостевая[/b][/url][/align]""",
         '')
