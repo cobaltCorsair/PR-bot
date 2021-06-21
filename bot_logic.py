@@ -2,12 +2,14 @@ import sys
 import time
 import re
 import json
+import os
 
 from selenium import webdriver
 from selenium.common.exceptions import *
 
-from PyQt5 import QtWidgets, QtGui, QtCore, Qt
+from PyQt5 import QtWidgets, QtWidgets, QtGui, QtCore, Qt
 from PyQt5.QtCore import QThread
+from PyQt5.QtWidgets import QFileDialog
 
 from PR_bot import Ui_MainWindow
 
@@ -542,6 +544,8 @@ class BotWindow(QtWidgets.QMainWindow):
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)
 
+        self.timer = QtCore.QTimer()
+
         self.forums_list = None
         self.forum_url = None
         self.pr_thread = None
@@ -551,6 +555,50 @@ class BotWindow(QtWidgets.QMainWindow):
         self.password = None
 
         self.thread = PrBot(self.forums_list, self.forum_url, self.pr_thread, self.pr_code, self.login, self.password)
+
+        self.ui.pushButton.clicked.connect(self.search_file)
+        self.ui.pushButton_2.clicked.connect(self.check_fields)
+
+    def search_file(self):
+        file_name = QFileDialog.getOpenFileName(self, 'Открыть файл', None, "*.txt")[0]
+        # folder = os.path.dirname(file_name)
+        self.ui.lineEdit_3.setText(file_name)
+        self.ui.lineEdit_3.setDisabled(True)
+
+        if len(self.ui.lineEdit_3.text()) != 0:
+            self.forums_list = self.ui.lineEdit_3.text()
+
+    def check_fields(self):
+        if self.ui.checkBox.isChecked():
+            if len(self.ui.lineEdit_4.text()) == 0 or len(self.ui.lineEdit_4.text()) == 0:
+                self.ui.lineEdit_4.setStyleSheet('border: 3px solid red')
+                self.timer.singleShot(1000, lambda: self.ui.lineEdit_4.setStyleSheet(''))
+            if len(self.ui.lineEdit_5.text()) == 0 or len(self.ui.lineEdit_5.text()) == 0:
+                self.ui.lineEdit_5.setStyleSheet('border: 3px solid red')
+                self.timer.singleShot(1000, lambda: self.ui.lineEdit_5.setStyleSheet(''))
+
+            if len(self.ui.lineEdit_5.text()) != 0 and len(self.ui.lineEdit_4.text()) != 0:
+                self.login = self.ui.lineEdit_4.text()
+                self.password = self.ui.lineEdit_5.text()
+
+    def get_another_fields(self):
+        if len(self.ui.lineEdit.text()) != 0:
+            self.pr_code = self.ui.lineEdit.text()
+        else:
+            self.ui.lineEdit.setStyleSheet('border: 3px solid red')
+            self.timer.singleShot(1000, lambda: self.ui.lineEdit.setStyleSheet(''))
+
+        if len(self.ui.lineEdit_2.text()) != 0:
+            self.pr_thread = self.ui.lineEdit_2.text()
+        else:
+            self.ui.lineEdit_2.setStyleSheet('border: 3px solid red')
+            self.timer.singleShot(1000, lambda: self.ui.lineEdit_2.setStyleSheet(''))
+
+        if len(self.ui.lineEdit_3.text()) != 0:
+            self.forum_url = self.ui.lineEdit_3.text()
+        else:
+            self.ui.lineEdit_3.setStyleSheet('border: 3px solid red')
+            self.timer.singleShot(1000, lambda: self.ui.lineEdit_3.setStyleSheet(''))
 
     def start_threading(self):
         pass
