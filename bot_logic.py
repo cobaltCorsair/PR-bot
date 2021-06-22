@@ -557,7 +557,7 @@ class BotWindow(QtWidgets.QMainWindow):
         self.thread = PrBot(self.forums_list, self.forum_url, self.pr_thread, self.pr_code, self.login, self.password)
 
         self.ui.pushButton.clicked.connect(self.search_file)
-        self.ui.pushButton_2.clicked.connect(self.check_fields)
+        self.ui.pushButton_2.clicked.connect(self.check_variables_and_start)
 
     def search_file(self):
         file_name = QFileDialog.getOpenFileName(self, 'Открыть файл', None, "*.txt")[0]
@@ -567,40 +567,58 @@ class BotWindow(QtWidgets.QMainWindow):
 
         if len(self.ui.lineEdit_3.text()) != 0:
             self.forums_list = self.ui.lineEdit_3.text()
+            return True
 
-    def check_fields(self):
+    def get_login_and_password(self):
         if self.ui.checkBox.isChecked():
-            if len(self.ui.lineEdit_4.text()) == 0 or len(self.ui.lineEdit_4.text()) == 0:
-                self.ui.lineEdit_4.setStyleSheet('border: 3px solid red')
-                self.timer.singleShot(1000, lambda: self.ui.lineEdit_4.setStyleSheet(''))
-            if len(self.ui.lineEdit_5.text()) == 0 or len(self.ui.lineEdit_5.text()) == 0:
-                self.ui.lineEdit_5.setStyleSheet('border: 3px solid red')
-                self.timer.singleShot(1000, lambda: self.ui.lineEdit_5.setStyleSheet(''))
-
             if len(self.ui.lineEdit_5.text()) != 0 and len(self.ui.lineEdit_4.text()) != 0:
                 self.login = self.ui.lineEdit_4.text()
                 self.password = self.ui.lineEdit_5.text()
+                return True
+            else:
+                if len(self.ui.lineEdit_4.text()) == 0 or len(self.ui.lineEdit_4.text()) == 0:
+                    self.ui.lineEdit_4.setStyleSheet('border: 3px solid red')
+                    self.timer.singleShot(1000, lambda: self.ui.lineEdit_4.setStyleSheet(''))
+                if len(self.ui.lineEdit_5.text()) == 0 or len(self.ui.lineEdit_5.text()) == 0:
+                    self.ui.lineEdit_5.setStyleSheet('border: 3px solid red')
+                    self.timer.singleShot(1000, lambda: self.ui.lineEdit_5.setStyleSheet(''))
 
-    def get_another_fields(self):
+    def get_url_and_thread(self):
         if len(self.ui.lineEdit.text()) != 0:
             self.pr_code = self.ui.lineEdit.text()
+            return True
         else:
             self.ui.lineEdit.setStyleSheet('border: 3px solid red')
             self.timer.singleShot(1000, lambda: self.ui.lineEdit.setStyleSheet(''))
 
         if len(self.ui.lineEdit_2.text()) != 0:
             self.pr_thread = self.ui.lineEdit_2.text()
+            return True
         else:
             self.ui.lineEdit_2.setStyleSheet('border: 3px solid red')
             self.timer.singleShot(1000, lambda: self.ui.lineEdit_2.setStyleSheet(''))
 
         if len(self.ui.lineEdit_3.text()) != 0:
             self.forum_url = self.ui.lineEdit_3.text()
+            return True
         else:
             self.ui.lineEdit_3.setStyleSheet('border: 3px solid red')
             self.timer.singleShot(1000, lambda: self.ui.lineEdit_3.setStyleSheet(''))
 
+    def get_pr_code(self):
+        if len(self.ui.textEdit.toPlainText()) != 0:
+            self.pr_code = self.ui.textEdit.toPlainText()
+            return True
+        else:
+            self.ui.textEdit.setStyleSheet('border: 3px solid red')
+            self.timer.singleShot(1000, lambda: self.ui.textEdit.setStyleSheet(''))
+
+    def check_variables_and_start(self):
+        gui_methods = [self.get_login_and_password(), self.get_url_and_thread(), self.get_pr_code(), self.forums_list]
+        print(all(gui_methods))
+
     def start_threading(self):
+        print('ok')
         pass
 
     #     self.ui.lineEdit_3.setPlaceholderText('Поле принимает bb-код')
