@@ -18,9 +18,11 @@ class FileParsing:
 
     def __init__(self, file):
         self.file_path = file
+        self.size = None
 
     def get_file(self):
         with open(self.file_path, 'r') as f:
+            self.size = sum(1 for _ in f)
             for line in f:
                 yield line.strip()
 
@@ -135,7 +137,7 @@ class Driver:
         self.options = webdriver.ChromeOptions()
         self.options.add_argument('--blink-settings=imagesEnabled=false')
         self.options.add_experimental_option("excludeSwitches", ["enable-logging"])
-        self.options.add_argument('headless')
+        # self.options.add_argument('headless')
         self.executable_path = './driver/chromedriver.exe'
         # инициализация веб-драйвера
         self.driver = webdriver.Chrome(options=self.options, executable_path=self.executable_path)
@@ -179,11 +181,13 @@ class BotReport:
               f'Было пропущено форумов: {BotReport.get_all_errors_len()}')
 
 
-class PrBot:
+class PrBot(QThread):
     """Класс пиар-бота, запускающий процесс рекламы"""
 
     # получаем время старта скрипта
     start_time = time.time()
+    # получаем сигнал для прогресс-бара
+    progressChanged = QtCore.pyqtSignal(int)
 
     @staticmethod
     def get_work_time():
@@ -192,12 +196,13 @@ class PrBot:
 
     def __init__(self, file, ancestor_forum, ancestor_pr_topic, pr_code, mark,
                  user_login=None, user_password=None):
+        super().__init__()
         # пустая переменная для текущей ссылки
         self.url = None
         # пустая переменная для id профиля
         self.user_id = None
         # список форумов из файла
-        self.list_forums = file
+        self.list_forums = FileParsing(file)
         # ссылка на форум, который мы рекламим
         self.ancestor_forum = ancestor_forum
         # ссылка на рекламную тему на этом форме
@@ -231,8 +236,11 @@ class PrBot:
         self.chrome.driver.execute_script("window.open()")
         self.chrome.window_after = self.chrome.driver.window_handles[1]
         # проходим по форумам в списке переданных ссылок
-        for http in FileParsing(self.list_forums).get_file():
+        progress = 0
+        for http in self.list_forums.get_file():
             self.url = http
+            progress += 100 / len(self.list_forums.size)
+            self.progressChanged.emit(progress)
             self.chrome.driver.switch_to.window(self.chrome.window_after)
             try:
                 self.chrome.driver.get(self.url)
@@ -525,43 +533,30 @@ class OldPrPostCheck(Exception):
     pass
 
 
-# if __name__ == '__main__':
-#     test = PrBot('forums_list.txt',
-#                  'https://dis.f-rpg.me',
-#                  'https://dis.f-rpg.me/viewtopic.php?id=508',
-#                  """[align=center][url=https://dis.f-rpg.ru/][img]https://forumstatic.ru/files/001a/e7/ed/68017.png[/img][/url]
-# [url=https://dis.f-rpg.ru/viewtopic.php?id=4][b]сюжет игры[/b][/url] • [url=https://dis.f-rpg.ru/viewtopic.php?id=12][b]магические расы[/b][/url] • [url=https://dis.f-rpg.ru/viewtopic.php?id=3][b]о мире[/b][/url] • [url=https://dis.f-rpg.ru/viewtopic.php?id=8][b]организации[/b][/url]
-# NC-21. Приём женских персонажей ограничен[/align]""",
-#                  '', 'Ловец снов', '105105')
-#     test.select_forum()
-
-
 class BotWindow(QtWidgets.QMainWindow):
+    """Класс, запускающий интерфейс"""
 
     def __init__(self, *args, **kwargs):
         super(BotWindow, self).__init__(*args, **kwargs)
 
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)
-
         self.timer = QtCore.QTimer()
 
         self.forums_list = None
         self.forum_url = None
         self.pr_thread = None
         self.pr_code = None
-
         self.login = None
         self.password = None
-
-        self.thread = PrBot(self.forums_list, self.forum_url, self.pr_thread, self.pr_code, self.login, self.password)
+        self.thread = None
 
         self.ui.pushButton.clicked.connect(self.search_file)
         self.ui.pushButton_2.clicked.connect(self.check_variables_and_start)
 
     def search_file(self):
+        """Поиск файла со списком форумов"""
         file_name = QFileDialog.getOpenFileName(self, 'Открыть файл', None, "*.txt")[0]
-        # folder = os.path.dirname(file_name)
         self.ui.lineEdit_3.setText(file_name)
         self.ui.lineEdit_3.setDisabled(True)
 
@@ -570,11 +565,11 @@ class BotWindow(QtWidgets.QMainWindow):
             return True
 
     def get_login_and_password(self):
+        """Проверка логина (если отмечен чекбокс)"""
         if self.ui.checkBox.isChecked():
             if len(self.ui.lineEdit_5.text()) != 0 and len(self.ui.lineEdit_4.text()) != 0:
                 self.login = self.ui.lineEdit_4.text()
                 self.password = self.ui.lineEdit_5.text()
-                return True
             else:
                 if len(self.ui.lineEdit_4.text()) == 0 or len(self.ui.lineEdit_4.text()) == 0:
                     self.ui.lineEdit_4.setStyleSheet('border: 3px solid red')
@@ -582,30 +577,37 @@ class BotWindow(QtWidgets.QMainWindow):
                 if len(self.ui.lineEdit_5.text()) == 0 or len(self.ui.lineEdit_5.text()) == 0:
                     self.ui.lineEdit_5.setStyleSheet('border: 3px solid red')
                     self.timer.singleShot(1000, lambda: self.ui.lineEdit_5.setStyleSheet(''))
+                return False
+        return True
 
-    def get_url_and_thread(self):
+    def get_thread_url(self):
+        """Получение ссылки на рекламную тему"""
         if len(self.ui.lineEdit.text()) != 0:
-            self.pr_code = self.ui.lineEdit.text()
+            self.pr_thread = self.ui.lineEdit.text()
             return True
         else:
             self.ui.lineEdit.setStyleSheet('border: 3px solid red')
             self.timer.singleShot(1000, lambda: self.ui.lineEdit.setStyleSheet(''))
 
+    def get_forum_url(self):
+        """Получение ссылки на форум"""
         if len(self.ui.lineEdit_2.text()) != 0:
-            self.pr_thread = self.ui.lineEdit_2.text()
+            self.forum_url = self.ui.lineEdit_2.text()
             return True
         else:
             self.ui.lineEdit_2.setStyleSheet('border: 3px solid red')
             self.timer.singleShot(1000, lambda: self.ui.lineEdit_2.setStyleSheet(''))
 
+    def check_file_list(self):
+        """Проверка наличия выбранного файла со списком"""
         if len(self.ui.lineEdit_3.text()) != 0:
-            self.forum_url = self.ui.lineEdit_3.text()
             return True
         else:
             self.ui.lineEdit_3.setStyleSheet('border: 3px solid red')
             self.timer.singleShot(1000, lambda: self.ui.lineEdit_3.setStyleSheet(''))
 
     def get_pr_code(self):
+        """Получение шаблона рекламы"""
         if len(self.ui.textEdit.toPlainText()) != 0:
             self.pr_code = self.ui.textEdit.toPlainText()
             return True
@@ -614,52 +616,33 @@ class BotWindow(QtWidgets.QMainWindow):
             self.timer.singleShot(1000, lambda: self.ui.textEdit.setStyleSheet(''))
 
     def check_variables_and_start(self):
-        gui_methods = [self.get_login_and_password(), self.get_url_and_thread(), self.get_pr_code(), self.forums_list]
-        print(all(gui_methods))
+        """Проверка всех методов на True и запуск процесса рекламы"""
+        gui_methods = [self.get_login_and_password(), self.get_thread_url(), self.get_forum_url(), self.get_pr_code(), self.check_file_list(), self.forums_list]
+        if all(gui_methods):
+            self.fields_disabled()
+            self.start_threading()
+
+    def fields_disabled(self):
+        """Деактивация всех полей интерфейса"""
+        self.ui.textEdit.setEnabled(False)
+        self.ui.lineEdit.setEnabled(False)
+        self.ui.lineEdit_2.setEnabled(False)
+        self.ui.lineEdit_3.setEnabled(False)
+        self.ui.lineEdit_4.setEnabled(False)
+        self.ui.lineEdit_5.setEnabled(False)
+        self.ui.pushButton.setEnabled(False)
+        self.ui.pushButton_2.setEnabled(False)
+        self.ui.checkBox.setEnabled(False)
 
     def start_threading(self):
-        print('ok')
-        pass
+        """Старт потока"""
+        self.thread = PrBot(self.forums_list, self.forum_url, self.pr_thread, self.pr_code, self.login, self.password)
+        self.thread.progressChanged.connect(self.on_about_check_url)
+        self.thread.select_forum()
 
-    #     self.ui.lineEdit_3.setPlaceholderText('Поле принимает bb-код')
-    #
-    #     self.urls = []
-    #     self.forum_main_ui = ''
-    #     self.forum_pr_topic = ''
-    #     self.pr_code = ''
-    #     self.bot_mark = ''
-    #     # формируем новый поток для запуска
-    #     self.thread = PRBot(url=None, ancestor_forum=None, ancestor_pr_topic=None, pr_code=None, mark='')
-    #     self.ui.pushButton.clicked.connect(self.set_variables_to_bot)
-    #     self.ui.pushButton_2.clicked.connect(self.run_bot)
-    #
-    # def set_variables_to_bot(self):
-    #     # устанавливаем переменные для бота
-    #     self.urls = self.ui.textEdit.toPlainText().replace(' ', '').split(',')
-    #     self.forum_main_ui = self.ui.lineEdit.text()
-    #     self.forum_pr_topic = self.ui.lineEdit_2.text()
-    #     self.pr_code = self.ui.plainTextEdit.toPlainText()
-    #     self.bot_mark = self.ui.lineEdit_3.text()
-    #     self.ui.pushButton.setEnabled(False)
-    #     self.ui.plainTextEdit.setEnabled(False)
-    #     self.ui.lineEdit.setEnabled(False)
-    #     self.ui.lineEdit_2.setEnabled(False)
-    #     self.ui.lineEdit_3.setEnabled(False)
-    #     self.ui.textEdit.setEnabled(False)
-    #
-    #     # передаем переменные в поток
-    #     self.thread.urls = self.urls
-    #     self.thread.ancestor_forum = self.forum_main_ui
-    #     self.thread.ancestor_pr_topic = self.forum_pr_topic
-    #     self.thread.pr_code = self.pr_code
-    #     self.thread.mark = self.bot_mark
-    #
-    # def on_about_check_url(self, data):
-    #     self.ui.progressBar.setValue(data)
-    #
-    # def run_bot(self):
-    #     self.thread.start()
-    #     self.thread.progressChanged.connect(self.on_about_check_url)
+    def on_about_check_url(self, data):
+        """Отрпавка значения в статусбар"""
+        self.ui.progressBar.setValue(data)
 
 
 app = QtWidgets.QApplication([])
