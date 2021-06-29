@@ -18,25 +18,28 @@ class FileParsing:
 
     def __init__(self, file):
         self.file_path = file
-        self.size = None
+        self.size = self.get_size
 
     def get_file(self):
         with open(self.file_path, 'r') as f:
-            self.size = sum(1 for _ in f)
             for line in f:
                 yield line.strip()
+
+    @property
+    def get_size(self):
+        with open(self.file_path) as f:
+            size = sum(1 for _ in f)
+        return size
 
 
 class GetPRMessage:
     """Класс для получения изображений"""
 
-    def __init__(self, driver, pr_code, mark=''):
+    def __init__(self, driver, pr_code):
         # пиар-код форума, который мы рекламим
         self.pr_code = pr_code
         # переменная для сохранения шаблона рекламы на форуме, где рекламим
         self.topic_post_html = None
-        # маркировка Пиар-бота для сообщений на родительском форуме
-        self.mark = mark
         # переменная под ссылку на сообщение с рекламой
         self.pr_post_link = None
         # вебдрайвер
@@ -52,20 +55,23 @@ class GetPRMessage:
         GetPRMessage.get_all_codes(inner_sources)
         return True
 
-    def check_previous_pr(self, forum_url):
+    def check_previous_pr(self, forum_url, check_last_page):
         """Проверка на наличие рекламы на последней странице темы"""
-        all_page_numbers = self.driver.find_elements_by_css_selector('.pagelink > a')
-        url_list = [i.get_attribute('href') for i in all_page_numbers]
-        next_page = self.driver.find_elements_by_css_selector('.pagelink > a.next')
-        if next_page:
-            last_page = url_list[-2]
-            self.driver.get(last_page)
-        all_post_on_page = self.driver.find_elements_by_class_name('post-content')
-        inner_sources = [i.get_attribute('innerHTML') for i in all_post_on_page]
-        for i in inner_sources:
-            if forum_url in i:
-                return False
-        return True
+        if check_last_page:
+            all_page_numbers = self.driver.find_elements_by_css_selector('.pagelink > a')
+            url_list = [i.get_attribute('href') for i in all_page_numbers]
+            next_page = self.driver.find_elements_by_css_selector('.pagelink > a.next')
+            if next_page:
+                last_page = url_list[-2]
+                self.driver.get(last_page)
+            all_post_on_page = self.driver.find_elements_by_class_name('post-content')
+            inner_sources = [i.get_attribute('innerHTML') for i in all_post_on_page]
+            for i in inner_sources:
+                if forum_url in i:
+                    return False
+            return True
+        else:
+            return True
 
     @staticmethod
     def get_all_codes(inner_sources):
@@ -95,11 +101,10 @@ class GetPRMessage:
                     });'''
 
         self.driver.execute_script(stop_enter_press)
-        # чистим html от тегов и ставим маркировку
+        # чистим html от тегов
         first_post_html_safety = re.sub(r'<span>', '', self.topic_post_html).replace('</span>', '')
-        pr_code_with_mark = f"{first_post_html_safety} {self.mark}"
         # переписываем в json для быстрой отправки
-        json_code = json.dumps(pr_code_with_mark)
+        json_code = json.dumps(first_post_html_safety)
 
         self.get_json(json_code)
         return True
@@ -194,8 +199,8 @@ class PrBot(QThread):
         time_export = round(round(time.time() - PrBot.start_time, 2) / 60)
         print(f'Затрачено времени на выполнение (в минутах): {time_export}')
 
-    def __init__(self, file, ancestor_forum, ancestor_pr_topic, pr_code, mark,
-                 user_login=None, user_password=None):
+    def __init__(self, file, ancestor_forum, ancestor_pr_topic, pr_code,
+                 user_login=None, user_password=None, check_last_page=True):
         super().__init__()
         # пустая переменная для текущей ссылки
         self.url = None
@@ -209,12 +214,12 @@ class PrBot(QThread):
         self.ancestor_pr_topic = ancestor_pr_topic
         # пиар-код форума, который мы рекламим
         self.pr_code = pr_code
-        # маркировка Пиар-бота для сообщений на родительском форуме
-        self.mark = mark
         # логин аккаунта (если есть)
         self.user_login = user_login
         # пароль аккаунта (если есть)
         self.user_password = user_password
+        # подключаем проверку последней страницы на повтор
+        self.check_last_page = check_last_page
         # подключаем драйвер
         self.chrome = Driver()
 
@@ -235,11 +240,13 @@ class PrBot(QThread):
         # открыть новую пустую вкладку
         self.chrome.driver.execute_script("window.open()")
         self.chrome.window_after = self.chrome.driver.window_handles[1]
-        # проходим по форумам в списке переданных ссылок
         progress = 0
-        for http in self.list_forums.get_file():
-            self.url = http
-            progress += 100 / len(self.list_forums.size)
+        # инициализируем генератор
+        forum = self.list_forums.get_file()
+        # проходим по форумам в списке переданных ссылок
+        for _ in range(self.list_forums.size):
+            self.url = next(forum)
+            progress += 100 / self.list_forums.size
             self.progressChanged.emit(progress)
             self.chrome.driver.switch_to.window(self.chrome.window_after)
             try:
@@ -283,9 +290,9 @@ class PrBot(QThread):
 
     def go_to_forum(self):
         """Переход в рекламную тему на этом форуме"""
-        p = GetPRMessage(self.chrome.driver, self.pr_code, self.mark)
+        p = GetPRMessage(self.chrome.driver, self.pr_code)
         p.get_pr_code()
-        if p.check_previous_pr(self.ancestor_forum):
+        if p.check_previous_pr(self.ancestor_forum, self.check_last_page):
             # проверяем, есть ли наша реклама на последней странице темы
             if p.checking_html(self.url):
                 self.chrome.driver.switch_to.window(self.chrome.window_before)
@@ -550,6 +557,7 @@ class BotWindow(QtWidgets.QMainWindow):
         self.login = None
         self.password = None
         self.thread = None
+        self.check_last_page = True
 
         self.ui.pushButton.clicked.connect(self.search_file)
         self.ui.pushButton_2.clicked.connect(self.check_variables_and_start)
@@ -615,11 +623,18 @@ class BotWindow(QtWidgets.QMainWindow):
             self.ui.textEdit.setStyleSheet('border: 3px solid red')
             self.timer.singleShot(1000, lambda: self.ui.textEdit.setStyleSheet(''))
 
+    def check_pr_last_page(self):
+        if self.ui.checkBox_3.isChecked():
+            self.check_last_page = True
+        else:
+            self.check_last_page = False
+
     def check_variables_and_start(self):
         """Проверка всех методов на True и запуск процесса рекламы"""
         gui_methods = [self.get_login_and_password(), self.get_thread_url(), self.get_forum_url(), self.get_pr_code(), self.check_file_list(), self.forums_list]
         if all(gui_methods):
             self.fields_disabled()
+            self.check_pr_last_page()
             self.start_threading()
 
     def fields_disabled(self):
@@ -636,7 +651,8 @@ class BotWindow(QtWidgets.QMainWindow):
 
     def start_threading(self):
         """Старт потока"""
-        self.thread = PrBot(self.forums_list, self.forum_url, self.pr_thread, self.pr_code, self.login, self.password)
+        self.thread = PrBot(self.forums_list, self.forum_url, self.pr_thread, self.pr_code,
+                            self.login, self.password, self.check_last_page)
         self.thread.progressChanged.connect(self.on_about_check_url)
         self.thread.select_forum()
 
