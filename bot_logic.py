@@ -223,7 +223,7 @@ class PrBot(QThread):
         # подключаем драйвер
         self.chrome = Driver()
 
-    def select_forum(self):
+    def run(self):
         """Выбор форума"""
         # если вход на родительский форум успешен, то
         if self.go_to_ancestor_forum():
@@ -653,8 +653,9 @@ class BotWindow(QtWidgets.QMainWindow):
         """Старт потока"""
         self.thread = PrBot(self.forums_list, self.forum_url, self.pr_thread, self.pr_code,
                             self.login, self.password, self.check_last_page)
+        self.thread.start()
         self.thread.progressChanged.connect(self.on_about_check_url)
-        self.thread.select_forum()
+        #self.thread.select_forum()
 
     def on_about_check_url(self, data):
         """Отрпавка значения в статусбар"""
