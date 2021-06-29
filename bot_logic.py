@@ -1,3 +1,4 @@
+# -*- coding: utf8 -*-
 import sys
 import time
 import re
@@ -177,7 +178,7 @@ class BotReport:
                   'Неверно найденный аккаунт:': BotReport.ACCOUNT_ERRORS,
                   'Превышено ожидание загрузки форума:': BotReport.TIMEOUT_ERRORS,
                   'Реклама уже есть на последней странице темы:': BotReport.PR_POST_HAS_ALREADY}
-
+    # TODO: Написать вывод в файл
         for key, value in errors.items():
             if len(value) is not 0:
                 print(key, value)
@@ -279,6 +280,7 @@ class PrBot(QThread):
             except StopIteration:
                 print('Рекламная тема закончилась, необходима новая!')
                 BotReport.get_bot_report()
+                application.set_enabled_stat_button()
                 return False
             except JavascriptException:
                 print(f'Возникли проблемы со скриптом пиар-фхода на форуме {self.url}')
@@ -286,6 +288,7 @@ class PrBot(QThread):
         else:
             BotReport.get_bot_report()
             PrBot.get_work_time()
+            application.set_enabled_stat_button()
             return True
 
     def go_to_forum(self):
@@ -559,6 +562,9 @@ class BotWindow(QtWidgets.QMainWindow):
         self.thread = None
         self.check_last_page = True
 
+        self.ui.pushButton_3.setEnabled(True)
+        self.ui.pushButton_3.clicked.connect(BotWindow.view_stat_window)
+
         self.ui.pushButton.clicked.connect(self.search_file)
         self.ui.pushButton_2.clicked.connect(self.check_variables_and_start)
 
@@ -655,11 +661,22 @@ class BotWindow(QtWidgets.QMainWindow):
                             self.login, self.password, self.check_last_page)
         self.thread.start()
         self.thread.progressChanged.connect(self.on_about_check_url)
-        #self.thread.select_forum()
 
     def on_about_check_url(self, data):
         """Отрпавка значения в статусбар"""
         self.ui.progressBar.setValue(data)
+
+    def set_enabled_stat_button(self):
+        #self.ui.pushButton_3.setEnabled(True)
+        self.ui.pushButton_2.clicked.connect(BotWindow.view_stat_window)
+
+    @staticmethod
+    def view_stat_window():
+        os.startfile(r'log.txt')
+        print('ok')
+
+
+
 
 
 app = QtWidgets.QApplication([])

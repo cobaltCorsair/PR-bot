@@ -135,7 +135,7 @@ class Ui_MainWindow(object):
         self.lineEdit_5.setPlaceholderText(_translate("MainWindow", "Введите пароль"))
         self.checkBox_3.setText(_translate("MainWindow", "Проверять на наличие рекламы на последней странице темы"))
         self.pushButton_2.setText(_translate("MainWindow", "Старт"))
-        self.pushButton_3.setText(_translate("MainWindow", "Стоп"))
+        self.pushButton_3.setText(_translate("MainWindow", "Статистика"))
         self.menu.setTitle(_translate("MainWindow", "Экспорт настроек"))
         self.menu_2.setTitle(_translate("MainWindow", "Импорт настроек"))
         self.action.setText(_translate("MainWindow", "Загрузить предыдущие данные из файла настроек"))
