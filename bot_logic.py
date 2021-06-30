@@ -8,7 +8,7 @@ import os
 from selenium import webdriver
 from selenium.common.exceptions import *
 
-from PyQt5 import QtWidgets, QtWidgets, QtGui, QtCore, Qt
+from PyQt5 import QtWidgets, QtCore
 from PyQt5.QtCore import QThread
 from PyQt5.QtWidgets import QFileDialog
 
@@ -178,13 +178,16 @@ class BotReport:
                   'Неверно найденный аккаунт:': BotReport.ACCOUNT_ERRORS,
                   'Превышено ожидание загрузки форума:': BotReport.TIMEOUT_ERRORS,
                   'Реклама уже есть на последней странице темы:': BotReport.PR_POST_HAS_ALREADY}
-    # TODO: Написать вывод в файл
-        for key, value in errors.items():
-            if len(value) is not 0:
-                print(key, value)
 
-        print(f'Успешно пройдено форумов: {len(BotReport.SUCCESSFUL_FORUMS)} \n'
-              f'Было пропущено форумов: {BotReport.get_all_errors_len()}')
+        # TODO: Написать вывод в файл
+        with open(r"log.txt", "w") as file:
+            for key, value in errors.items():
+                if len(value) is not 0:
+                    file.write(f'{key} {value} \n')
+
+            file.write(f'Успешно пройдено форумов: {len(BotReport.SUCCESSFUL_FORUMS)} \n'
+                       f'Было пропущено форумов: {BotReport.get_all_errors_len()} \n'
+                       f'{PrBot.get_work_time()}')
 
 
 class PrBot(QThread):
@@ -197,10 +200,11 @@ class PrBot(QThread):
 
     @staticmethod
     def get_work_time():
+        """Получаем точное время работы скрипта"""
         time_export = round(round(time.time() - PrBot.start_time, 2) / 60)
-        print(f'Затрачено времени на выполнение (в минутах): {time_export}')
+        return f'Затрачено времени на выполнение (в минутах): {time_export}'
 
-    def __init__(self, file, ancestor_forum, ancestor_pr_topic, pr_code,
+    def __init__(self, file, ancestor_pr_topic, pr_code,
                  user_login=None, user_password=None, check_last_page=True):
         super().__init__()
         # пустая переменная для текущей ссылки
@@ -209,10 +213,10 @@ class PrBot(QThread):
         self.user_id = None
         # список форумов из файла
         self.list_forums = FileParsing(file)
-        # ссылка на форум, который мы рекламим
-        self.ancestor_forum = ancestor_forum
         # ссылка на рекламную тему на этом форме
         self.ancestor_pr_topic = ancestor_pr_topic
+        # ссылка на форум, который мы рекламим
+        self.ancestor_forum = self.ancestor_pr_topic.split('/viewtopic')[0]
         # пиар-код форума, который мы рекламим
         self.pr_code = pr_code
         # логин аккаунта (если есть)
@@ -287,7 +291,6 @@ class PrBot(QThread):
                 BotReport.ACCOUNT_ERRORS.append(self.url)
         else:
             BotReport.get_bot_report()
-            PrBot.get_work_time()
             application.set_enabled_stat_button()
             return True
 
@@ -405,6 +408,7 @@ class PrBot(QThread):
         return True
 
     def check_guest(self):
+        """Проверяем, вылогинились ли мы из аккаунта"""
         group_id = str(self.chrome.driver.execute_script("return (function() { return GroupID }())"))
         if group_id != '3':
             return True
@@ -554,23 +558,29 @@ class BotWindow(QtWidgets.QMainWindow):
         self.timer = QtCore.QTimer()
 
         self.forums_list = None
-        self.forum_url = None
         self.pr_thread = None
         self.pr_code = None
         self.login = None
         self.password = None
-        self.thread = None
         self.check_last_page = True
 
-        self.ui.pushButton_3.setEnabled(True)
-        self.ui.pushButton_3.clicked.connect(BotWindow.view_stat_window)
+        self.thread = None
 
         self.ui.pushButton.clicked.connect(self.search_file)
         self.ui.pushButton_2.clicked.connect(self.check_variables_and_start)
+        self.ui.action_2.triggered.connect(self.save_settings)
+        self.ui.action.triggered.connect(self.set_setting)
+
+        self.ui.pushButton_3.setEnabled(False)
+
+        if os.path.exists('settings.json'):
+            self.ui.action.setEnabled(True)
+        else:
+            self.ui.action.setEnabled(False)
 
     def search_file(self):
         """Поиск файла со списком форумов"""
-        file_name = QFileDialog.getOpenFileName(self, 'Открыть файл', None, "*.txt")[0]
+        file_name = QFileDialog.getOpenFileName(self, 'Открыть файл', '', "*.txt")[0]
         self.ui.lineEdit_3.setText(file_name)
         self.ui.lineEdit_3.setDisabled(True)
 
@@ -603,15 +613,6 @@ class BotWindow(QtWidgets.QMainWindow):
             self.ui.lineEdit.setStyleSheet('border: 3px solid red')
             self.timer.singleShot(1000, lambda: self.ui.lineEdit.setStyleSheet(''))
 
-    def get_forum_url(self):
-        """Получение ссылки на форум"""
-        if len(self.ui.lineEdit_2.text()) != 0:
-            self.forum_url = self.ui.lineEdit_2.text()
-            return True
-        else:
-            self.ui.lineEdit_2.setStyleSheet('border: 3px solid red')
-            self.timer.singleShot(1000, lambda: self.ui.lineEdit_2.setStyleSheet(''))
-
     def check_file_list(self):
         """Проверка наличия выбранного файла со списком"""
         if len(self.ui.lineEdit_3.text()) != 0:
@@ -637,7 +638,8 @@ class BotWindow(QtWidgets.QMainWindow):
 
     def check_variables_and_start(self):
         """Проверка всех методов на True и запуск процесса рекламы"""
-        gui_methods = [self.get_login_and_password(), self.get_thread_url(), self.get_forum_url(), self.get_pr_code(), self.check_file_list(), self.forums_list]
+        gui_methods = [self.get_login_and_password(), self.get_thread_url(), self.get_pr_code(),
+                       self.check_file_list(), self.forums_list]
         if all(gui_methods):
             self.fields_disabled()
             self.check_pr_last_page()
@@ -647,7 +649,6 @@ class BotWindow(QtWidgets.QMainWindow):
         """Деактивация всех полей интерфейса"""
         self.ui.textEdit.setEnabled(False)
         self.ui.lineEdit.setEnabled(False)
-        self.ui.lineEdit_2.setEnabled(False)
         self.ui.lineEdit_3.setEnabled(False)
         self.ui.lineEdit_4.setEnabled(False)
         self.ui.lineEdit_5.setEnabled(False)
@@ -657,7 +658,7 @@ class BotWindow(QtWidgets.QMainWindow):
 
     def start_threading(self):
         """Старт потока"""
-        self.thread = PrBot(self.forums_list, self.forum_url, self.pr_thread, self.pr_code,
+        self.thread = PrBot(self.forums_list, self.pr_thread, self.pr_code,
                             self.login, self.password, self.check_last_page)
         self.thread.start()
         self.thread.progressChanged.connect(self.on_about_check_url)
@@ -667,16 +668,65 @@ class BotWindow(QtWidgets.QMainWindow):
         self.ui.progressBar.setValue(data)
 
     def set_enabled_stat_button(self):
-        #self.ui.pushButton_3.setEnabled(True)
+        self.ui.pushButton_3.setEnabled(True)
         self.ui.pushButton_2.clicked.connect(BotWindow.view_stat_window)
 
     @staticmethod
     def view_stat_window():
         os.startfile(r'log.txt')
-        print('ok')
 
+    def save_settings(self):
+        gui_methods = [self.get_login_and_password(), self.get_thread_url(), self.get_pr_code(),
+                       self.check_file_list(), self.forums_list]
+        if all(gui_methods):
+            values = {
+                'pr_code': self.ui.textEdit.toPlainText(),
+                'thread_link': self.ui.lineEdit.text(),
+                'list_forums': self.ui.lineEdit_3.text(),
+                'account_check': True if self.ui.checkBox.isChecked() else False,
+                'login': self.ui.lineEdit_4.text() if self.ui.checkBox.isChecked() else None,
+                'password': self.ui.lineEdit_5.text() if self.ui.checkBox.isChecked() else None,
+                'check_repeat_state': True if self.ui.checkBox_3.isChecked() else False
+            }
 
+            with open("settings.json", "w") as write_file:
+                json.dump(values, write_file)
 
+    def set_setting(self):
+        setting_file = 'settings.json'
+
+        if os.path.exists(setting_file):
+            with open(setting_file, 'r', encoding='utf-8') as f:
+                settings_data = json.load(f)
+
+            print(settings_data)
+
+            # если выбран логин в аккаунт
+            if settings_data['account_check']:
+                self.login = settings_data['login']
+                self.password = settings_data['password']
+                self.ui.lineEdit_4.setText(self.login)
+                self.ui.lineEdit_5.setText(self.password)
+
+                self.ui.checkBox.setChecked(True)
+
+            # если выбрана проверка повторов
+            if settings_data['check_repeat_state']:
+                self.ui.checkBox_3.setChecked(True)
+                self.check_last_page = True
+            else:
+                self.ui.checkBox_3.setChecked(False)
+                self.check_last_page = False
+
+            # заполняем настройку темы
+            self.pr_thread = settings_data['thread_link']
+            self.ui.lineEdit.setText(self.pr_thread)
+            # заполняем список форумов
+            self.forums_list = settings_data['list_forums']
+            self.ui.lineEdit_3.setText(self.forums_list)
+            # заполняем шаблон рекламы
+            self.pr_code = settings_data['pr_code']
+            self.ui.textEdit.setText(self.pr_code)
 
 
 app = QtWidgets.QApplication([])
