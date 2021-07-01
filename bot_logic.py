@@ -9,7 +9,7 @@ import os
 from selenium import webdriver
 from selenium.common.exceptions import *
 
-from PyQt5 import QtWidgets, QtCore
+from PyQt5 import QtWidgets, QtCore, QtGui
 from PyQt5.QtCore import QThread
 from PyQt5.QtWidgets import QFileDialog, QMessageBox
 
@@ -665,7 +665,6 @@ class BotWindow(QtWidgets.QMainWindow):
                 print('Устаревшая версия вебдрайвера')
                 app.closeAllWindows()
 
-
     def fields_disabled(self):
         """Деактивация всех полей интерфейса"""
         self.ui.plainTextEdit.setEnabled(False)
@@ -754,8 +753,8 @@ class BotWindow(QtWidgets.QMainWindow):
 
 app = QtWidgets.QApplication([])
 # иконка приложения
-# ico = QtGui.QIcon('./icons/icon.png')
-# app.setWindowIcon(ico)
+ico = QtGui.QIcon('./src/icon.png')
+app.setWindowIcon(ico)
 # стиль отображения интерфейса
 app.setStyle("Fusion")
 app.processEvents()
