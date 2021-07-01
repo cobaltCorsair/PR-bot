@@ -1,3 +1,4 @@
+"""Пиар-бот для ролевых форумов"""
 # -*- coding: utf8 -*-
 import sys
 import time
@@ -16,18 +17,20 @@ from PR_bot import Ui_MainWindow
 
 
 class FileParsing:
-
+    """Парсим файл с адресами форумов"""
     def __init__(self, file):
         self.file_path = file
         self.size = self.get_size
 
     def get_file(self):
-        with open(self.file_path, 'r') as f:
+        """Открываем файл и создаем генератор для выдачи построчно"""
+        with open(self.file_path) as f:
             for line in f:
                 yield line.strip()
 
     @property
     def get_size(self):
+        """Считаем количество строк в файле"""
         with open(self.file_path) as f:
             size = sum(1 for _ in f)
         return size
@@ -173,6 +176,7 @@ class BotReport:
 
     @staticmethod
     def get_bot_report():
+        """Записываем ошибки в репорт"""
         errors = {'Не найдена форма ответа/картинка в последнем посте/код рекламы:': BotReport.NO_ELEMENTS_ERRORS,
                   'Недостоверная ссылка в теме:': BotReport.WRONG_THEME_ERRORS,
                   'Неверно найденный аккаунт:': BotReport.ACCOUNT_ERRORS,
@@ -528,22 +532,27 @@ class PrBot(QThread):
 
 
 class LoginExceptions(Exception):
+    """Класс ошибки логина"""
     pass
 
 
 class LinkError(Exception):
+    """Класс ошибки ссылки в посте темы рекламы"""
     pass
 
 
 class NoAccountMessage(Exception):
+    """Класс ошибки отсутствия сообщений у аккаунта"""
     pass
 
 
 class PartnershipTheme(Exception):
+    """Класс ошибочно выбранной темы"""
     pass
 
 
 class OldPrPostCheck(Exception):
+    """Класс ошибки наличия повтора рекламы на последней странице"""
     pass
 
 
@@ -580,7 +589,7 @@ class BotWindow(QtWidgets.QMainWindow):
 
     def search_file(self):
         """Поиск файла со списком форумов"""
-        file_name = QFileDialog.getOpenFileName(self, 'Открыть файл', '', "*.txt")[0]
+        file_name = QFileDialog.getOpenFileName(self, 'Открыть файл', "*.txt")[0]
         self.ui.lineEdit_3.setText(file_name)
         self.ui.lineEdit_3.setDisabled(True)
 
@@ -631,6 +640,7 @@ class BotWindow(QtWidgets.QMainWindow):
             self.timer.singleShot(1000, lambda: self.ui.textEdit.setStyleSheet(''))
 
     def check_pr_last_page(self):
+        """Определяем, отмечен ли чекбокс проверки на повторы"""
         if self.ui.checkBox_3.isChecked():
             self.check_last_page = True
         else:
@@ -664,18 +674,21 @@ class BotWindow(QtWidgets.QMainWindow):
         self.thread.progressChanged.connect(self.on_about_check_url)
 
     def on_about_check_url(self, data):
-        """Отрпавка значения в статусбар"""
+        """Отправка значения в статусбар"""
         self.ui.progressBar.setValue(data)
 
     def set_enabled_stat_button(self):
+        """Делаем доступной кнопку статистики"""
         self.ui.pushButton_3.setEnabled(True)
         self.ui.pushButton_2.clicked.connect(BotWindow.view_stat_window)
 
     @staticmethod
     def view_stat_window():
+        """Открываем файл логов"""
         os.startfile(r'log.txt')
 
     def save_settings(self):
+        """Сохраняем параметры настроек в JSON"""
         gui_methods = [self.get_login_and_password(), self.get_thread_url(), self.get_pr_code(),
                        self.check_file_list(), self.forums_list]
         if all(gui_methods):
@@ -693,10 +706,11 @@ class BotWindow(QtWidgets.QMainWindow):
                 json.dump(values, write_file)
 
     def set_setting(self):
+        """Читаем параметры настроек из JSON"""
         setting_file = 'settings.json'
 
         if os.path.exists(setting_file):
-            with open(setting_file, 'r', encoding='utf-8') as f:
+            with open(setting_file, encoding='utf-8') as f:
                 settings_data = json.load(f)
 
             print(settings_data)
