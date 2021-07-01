@@ -11,7 +11,7 @@ from selenium.common.exceptions import *
 
 from PyQt5 import QtWidgets, QtCore
 from PyQt5.QtCore import QThread
-from PyQt5.QtWidgets import QFileDialog
+from PyQt5.QtWidgets import QFileDialog, QMessageBox
 
 from PR_bot import Ui_MainWindow
 
@@ -146,7 +146,7 @@ class Driver:
         self.options = webdriver.ChromeOptions()
         self.options.add_argument('--blink-settings=imagesEnabled=false')
         self.options.add_experimental_option("excludeSwitches", ["enable-logging"])
-        # self.options.add_argument('headless')
+        self.options.add_argument('headless')
         self.executable_path = './driver/chromedriver.exe'
         # инициализация веб-драйвера
         self.driver = webdriver.Chrome(options=self.options, executable_path=self.executable_path)
@@ -289,6 +289,7 @@ class PrBot(QThread):
                 print('Рекламная тема закончилась, необходима новая!')
                 BotReport.get_bot_report()
                 application.set_enabled_stat_button()
+                self.chrome.driver.quit()
                 return False
             except JavascriptException:
                 print(f'Возникли проблемы со скриптом пиар-фхода на форуме {self.url}')
@@ -296,6 +297,7 @@ class PrBot(QThread):
         else:
             BotReport.get_bot_report()
             application.set_enabled_stat_button()
+            self.chrome.driver.quit()
             return True
 
     def go_to_forum(self):
@@ -577,6 +579,7 @@ class BotWindow(QtWidgets.QMainWindow):
 
         self.ui.pushButton.clicked.connect(self.search_file)
         self.ui.pushButton_2.clicked.connect(self.check_variables_and_start)
+        self.ui.pushButton_3.clicked.connect(BotWindow.view_stat_window)
         self.ui.action_2.triggered.connect(self.save_settings)
         self.ui.action.triggered.connect(self.set_setting)
 
@@ -632,12 +635,12 @@ class BotWindow(QtWidgets.QMainWindow):
 
     def get_pr_code(self):
         """Получение шаблона рекламы"""
-        if len(self.ui.textEdit.toPlainText()) != 0:
-            self.pr_code = self.ui.textEdit.toPlainText()
+        if len(self.ui.plainTextEdit.toPlainText()) != 0:
+            self.pr_code = self.ui.plainTextEdit.toPlainText()
             return True
         else:
-            self.ui.textEdit.setStyleSheet('border: 3px solid red')
-            self.timer.singleShot(1000, lambda: self.ui.textEdit.setStyleSheet(''))
+            self.ui.plainTextEdit.setStyleSheet('border: 3px solid red')
+            self.timer.singleShot(1000, lambda: self.ui.plainTextEdit.setStyleSheet(''))
 
     def check_pr_last_page(self):
         """Определяем, отмечен ли чекбокс проверки на повторы"""
@@ -653,11 +656,19 @@ class BotWindow(QtWidgets.QMainWindow):
         if all(gui_methods):
             self.fields_disabled()
             self.check_pr_last_page()
-            self.start_threading()
+            try:
+                self.start_threading()
+            except SessionNotCreatedException:
+                QMessageBox.critical(self, "Ошибка ", "Устаревшая версия вебдрайвера, "
+                                                      "посетите страницу <a href='https://chromedriver.chromium.org/downloads'>ChromeDriver Downloads</a>  "
+                                                      "и скачайте подходящую для вашего браузера версию", QMessageBox.Ok)
+                print('Устаревшая версия вебдрайвера')
+                app.closeAllWindows()
+
 
     def fields_disabled(self):
         """Деактивация всех полей интерфейса"""
-        self.ui.textEdit.setEnabled(False)
+        self.ui.plainTextEdit.setEnabled(False)
         self.ui.lineEdit.setEnabled(False)
         self.ui.lineEdit_3.setEnabled(False)
         self.ui.lineEdit_4.setEnabled(False)
@@ -665,6 +676,7 @@ class BotWindow(QtWidgets.QMainWindow):
         self.ui.pushButton.setEnabled(False)
         self.ui.pushButton_2.setEnabled(False)
         self.ui.checkBox.setEnabled(False)
+        self.ui.checkBox_3.setEnabled(False)
 
     def start_threading(self):
         """Старт потока"""
@@ -680,7 +692,6 @@ class BotWindow(QtWidgets.QMainWindow):
     def set_enabled_stat_button(self):
         """Делаем доступной кнопку статистики"""
         self.ui.pushButton_3.setEnabled(True)
-        self.ui.pushButton_2.clicked.connect(BotWindow.view_stat_window)
 
     @staticmethod
     def view_stat_window():
@@ -693,7 +704,7 @@ class BotWindow(QtWidgets.QMainWindow):
                        self.check_file_list(), self.forums_list]
         if all(gui_methods):
             values = {
-                'pr_code': self.ui.textEdit.toPlainText(),
+                'pr_code': self.ui.plainTextEdit.toPlainText(),
                 'thread_link': self.ui.lineEdit.text(),
                 'list_forums': self.ui.lineEdit_3.text(),
                 'account_check': True if self.ui.checkBox.isChecked() else False,
@@ -712,8 +723,6 @@ class BotWindow(QtWidgets.QMainWindow):
         if os.path.exists(setting_file):
             with open(setting_file, encoding='utf-8') as f:
                 settings_data = json.load(f)
-
-            print(settings_data)
 
             # если выбран логин в аккаунт
             if settings_data['account_check']:
@@ -740,7 +749,7 @@ class BotWindow(QtWidgets.QMainWindow):
             self.ui.lineEdit_3.setText(self.forums_list)
             # заполняем шаблон рекламы
             self.pr_code = settings_data['pr_code']
-            self.ui.textEdit.setText(self.pr_code)
+            self.ui.plainTextEdit.setPlainText(self.pr_code)
 
 
 app = QtWidgets.QApplication([])
