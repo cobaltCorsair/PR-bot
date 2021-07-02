@@ -256,7 +256,7 @@ class PrBot(QThread):
         for _ in range(self.list_forums.size):
             self.url = next(forum)
             progress += 100 / self.list_forums.size
-            self.progressChanged.emit(progress)
+            self.progressChanged.emit(round(progress))
             self.chrome.driver.switch_to.window(self.chrome.window_after)
             try:
                 self.chrome.driver.get(self.url)
@@ -279,7 +279,7 @@ class PrBot(QThread):
             except NoAccountMessage:
                 print(f'На форуме {self.url} еще нет сообщений у этого аккаунта')
                 BotReport.ACCOUNT_ERRORS.append(self.url)
-            except TimeoutException:
+            except (TimeoutException, WebDriverException):
                 print(f'Ошибка загрузки форума {self.url}')
                 BotReport.TIMEOUT_ERRORS.append(self.url)
             except OldPrPostCheck:
@@ -659,9 +659,9 @@ class BotWindow(QtWidgets.QMainWindow):
             try:
                 self.start_threading()
             except SessionNotCreatedException:
-                QMessageBox.critical(self, "Ошибка ", "Устаревшая версия вебдрайвера, "
-                                                      "посетите страницу <a href='https://chromedriver.chromium.org/downloads'>ChromeDriver Downloads</a>  "
-                                                      "и скачайте подходящую для вашего браузера версию", QMessageBox.Ok)
+                QMessageBox.critical(self, "Ошибка ", "<b>Устаревшая версия вебдрайвера</b><br><br>"
+                                                      "Посетите страницу <a href='https://chromedriver.chromium.org/downloads'>ChromeDriver Downloads</a>  "
+                                                      "и скачайте подходящую для вашего браузера версию, после чего раcпакуйте <b>chromedriver.exe</b> в папку <b>driver</b>", QMessageBox.Ok)
                 print('Устаревшая версия вебдрайвера')
                 app.closeAllWindows()
 
@@ -676,6 +676,7 @@ class BotWindow(QtWidgets.QMainWindow):
         self.ui.pushButton_2.setEnabled(False)
         self.ui.checkBox.setEnabled(False)
         self.ui.checkBox_3.setEnabled(False)
+        self.ui.action.setEnabled(False)
 
     def start_threading(self):
         """Старт потока"""
@@ -691,6 +692,7 @@ class BotWindow(QtWidgets.QMainWindow):
     def set_enabled_stat_button(self):
         """Делаем доступной кнопку статистики"""
         self.ui.pushButton_3.setEnabled(True)
+        self.ui.pushButton_3.setStyleSheet('background-color: rgb(183, 222, 255);')
 
     @staticmethod
     def view_stat_window():
