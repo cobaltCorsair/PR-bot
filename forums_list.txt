@@ -49,7 +49,6 @@ https://codevein.mybb.ru
 https://cognita.rusff.me
 https://cosmogods.rusff.me
 https://crising.rusff.me
-https://crisscross.f-rpg.me
 https://crossfeeling.rusff.me
 https://crossreturns.rusff.me
 https://crossvers.rusff.me
@@ -131,7 +130,6 @@ https://levelingup.rusff.me
 https://lgchronicles.f-rpg.me
 https://lib.rusff.me
 https://liberum.f-rpg.me
-https://lightsout.f-rpg.me
 https://longliverock.rusff.me
 https://luminary.f-rpg.ru
 https://mafialand.rolevaya.com
@@ -210,8 +208,6 @@ https://simpledimple.rusff.me
 https://skt.rolka.me
 https://slowhere.ru
 https://smgg.igraemroli.ru
-https://smpostblue.rusff.me
-https://smpostblue.rusff.me
 https://sochi.rusff.me
 https://somaulte.rusff.me
 https://somethingold.f-rpg.me
@@ -227,7 +223,6 @@ https://strannic.mybb.ru
 https://summerchronicles.rusff.me
 https://supernaturalhell.f-rpg.me
 https://supportme.rusff.me
-https://swipe.rusff.me
 https://swmedley.rusff.me
 https://swordcoast.rusff.me
 https://symbiosis.rusff.me
@@ -252,7 +247,6 @@ https://urhome.rusff.me
 https://utopiacross.rusff.me
 https://utopilsya.rusff.me
 https://uts.rusff.me
-https://versus.rolka.su
 https://victorians.mybb.ru
 https://vipersona.rusff.me
 https://vraiven.rusff.me
@@ -265,10 +259,17 @@ https://whatif.rolbb.me
 https://whitepr.0pk.ru
 https://whour.rusff.me
 https://winxclubnew.mybb.ru
-https://wizardinghogwarts.ru
 https://wolves.roleforum.ru
 https://wwft.rusff.me
 https://yantar.rusff.me
 https://yellowcross.f-rpg.ru
 https://yourbalance.rusff.me
 https://yourphoenix.rusff.me
+https://rafenet.rusff.me
+https://arcanus.f-rpg.me
+https://ap.nc-21.ru
+https://good4u.rusff.me
+https://bgn.rusff.me
+https://elm.f-rpg.me
+https://anselior.1bb.ru
+https://eiriamach.rusff.me

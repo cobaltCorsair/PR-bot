@@ -180,7 +180,7 @@ class BotReport:
         errors = {'Не найдена форма ответа/картинка в последнем посте/код рекламы:': BotReport.NO_ELEMENTS_ERRORS,
                   'Недостоверная ссылка в теме:': BotReport.WRONG_THEME_ERRORS,
                   'Неверно найденный аккаунт:': BotReport.ACCOUNT_ERRORS,
-                  'Превышено ожидание загрузки форума:': BotReport.TIMEOUT_ERRORS,
+                  'Ошибка загрузки форума:': BotReport.TIMEOUT_ERRORS,
                   'Реклама уже есть на последней странице темы:': BotReport.PR_POST_HAS_ALREADY}
 
         # TODO: Написать вывод в файл
@@ -259,7 +259,7 @@ class PrBot(QThread):
             self.progressChanged.emit(round(progress))
             self.chrome.driver.switch_to.window(self.chrome.window_after)
             try:
-                self.chrome.driver.get(self.url)
+                self.chrome.driver.get('http://' + self.url.split('://')[1])
             except (TimeoutException, UnexpectedAlertPresentException):
                 print(f'Невозможно загрузить форум {self.url}')
                 BotReport.TIMEOUT_ERRORS.append(self.url)
@@ -276,6 +276,9 @@ class PrBot(QThread):
             except (LinkError, PartnershipTheme):
                 print(f'Тема форума {self.url} не прошла проверку на то, что она рекламная')
                 BotReport.WRONG_THEME_ERRORS.append(self.url)
+            except JavascriptException:
+                print(f'Возникли проблемы со скриптом пиар-фхода на форуме {self.url}')
+                BotReport.ACCOUNT_ERRORS.append(self.url)
             except NoAccountMessage:
                 print(f'На форуме {self.url} еще нет сообщений у этого аккаунта')
                 BotReport.ACCOUNT_ERRORS.append(self.url)
@@ -291,9 +294,6 @@ class PrBot(QThread):
                 application.set_enabled_stat_button()
                 self.chrome.driver.quit()
                 return False
-            except JavascriptException:
-                print(f'Возникли проблемы со скриптом пиар-фхода на форуме {self.url}')
-                BotReport.ACCOUNT_ERRORS.append(self.url)
         else:
             BotReport.get_bot_report()
             application.set_enabled_stat_button()
@@ -430,7 +430,7 @@ class PrBot(QThread):
                 if self.get_profile_id():
                     return True
                 else:
-                    return False
+                    raise LoginExceptions
         elif results[0]:
             # проверяем логин в двойной скрипт, заходим в первый аккаунт, если False, идем во второй
             if self.try_login(logins[1]):
@@ -439,10 +439,12 @@ class PrBot(QThread):
                         if self.check_guest():
                             self.forum_logout()
                         self.try_login(logins[2])
-                        self.get_profile_id()
-                        return True
+                        if self.get_profile_id():
+                            return True
+                        else:
+                            raise LoginExceptions
                     except JavascriptException:
-                        return False
+                        raise LoginExceptions
                 else:
                     return True
         elif results[2]:
@@ -454,20 +456,24 @@ class PrBot(QThread):
                         if self.check_guest():
                             self.forum_logout()
                         self.try_login(logins[1])
-                        self.get_profile_id()
-                        return True
+                        if self.get_profile_id():
+                            return True
+                        else:
+                            raise LoginExceptions
                     except JavascriptException:
-                        return False
+                        raise LoginExceptions
                 # если первый аккаунт озвращает False, идем во второй аккаунт
                 elif not self.get_profile_id():
                     try:
                         if self.check_guest():
                             self.forum_logout()
                         self.try_login(logins[2])
-                        self.get_profile_id()
-                        return True
+                        if self.get_profile_id():
+                            return True
+                        else:
+                            raise LoginExceptions
                     except JavascriptException:
-                        return False
+                        raise LoginExceptions
                 else:
                     return True
 
