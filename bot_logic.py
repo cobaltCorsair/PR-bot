@@ -476,6 +476,8 @@ class PrBot(QThread):
                         raise LoginExceptions
                 else:
                     return True
+        else:
+            raise JavascriptException
 
     def get_profile_id(self):
         """Поиск профиля на форуме"""
