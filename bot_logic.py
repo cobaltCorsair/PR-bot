@@ -298,7 +298,7 @@ class PrBot(QThread):
             BotReport.get_bot_report()
             application.set_enabled_stat_button()
             self.chrome.driver.quit()
-            return True
+            return False
 
     def go_to_forum(self):
         """Переход в рекламную тему на этом форуме"""

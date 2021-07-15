@@ -157,7 +157,6 @@ https://nevah.ru
 https://neverdie.rusff.me
 https://neversleeps.rusff.me
 https://newyorkbynight.ru
-https://nightsurf.rusff.me
 https://noctum.f-rpg.me
 https://nolf.rusff.me
 https://nomoreutopia.rusff.me
@@ -216,7 +215,6 @@ https://soullove.0pk.ru
 https://stadt.f-rpg.ru
 https://staffage.rusff.me
 https://starwarstiu.mybb.ru
-https://stasis.rusff.me
 https://stayalive.rolfor.ru
 https://stigma.rusff.me
 https://strannic.mybb.ru
@@ -252,7 +250,6 @@ https://vipersona.rusff.me
 https://vraiven.rusff.me
 https://waldmond.f-rpg.ru
 https://warriorscats.1bb.ru
-https://wbd.mybb.ru
 https://wearethefuture.rusff.me
 https://whatheydo.rusff.me
 https://whatif.rolbb.me
@@ -273,3 +270,5 @@ https://bgn.rusff.me
 https://elm.f-rpg.me
 https://anselior.1bb.ru
 https://eiriamach.rusff.me
+https://livestream.rusff.me
+https://darkmoscow.ru
