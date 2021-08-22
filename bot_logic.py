@@ -700,6 +700,7 @@ class BotWindow(QtWidgets.QMainWindow):
     def set_enabled_stat_button(self):
         """Делаем доступной кнопку статистики"""
         self.ui.pushButton_3.setEnabled(True)
+        time.sleep(2)
         self.ui.pushButton_3.setStyleSheet('background-color: rgb(183, 222, 255);')
 
     @staticmethod
