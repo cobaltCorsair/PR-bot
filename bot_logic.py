@@ -81,8 +81,9 @@ class GetPRMessage:
     def get_all_codes(inner_sources):
         """Дополнительное тестирование на то, что тема - не для заключения партнерства"""
         html_code = '&lt;/a&gt;'
+        code_in_pre = '</a>'
         for i in inner_sources:
-            if html_code in i:
+            if html_code in i or code_in_pre in i:
                 raise PartnershipTheme
 
     def checking_html(self, forum_url):
@@ -146,7 +147,7 @@ class Driver:
         self.options = webdriver.ChromeOptions()
         self.options.add_argument('--blink-settings=imagesEnabled=false')
         self.options.add_experimental_option("excludeSwitches", ["enable-logging"])
-        self.options.add_argument('headless')
+        #self.options.add_argument('headless')
         self.executable_path = './driver/chromedriver.exe'
         # инициализация веб-драйвера
         self.driver = webdriver.Chrome(options=self.options, executable_path=self.executable_path)
