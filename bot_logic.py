@@ -147,7 +147,6 @@ class Driver:
     def __init__(self):
         # пути доступа к файлам
         self.executable_path = './driver/chromedriver.exe'
-        self.add_block_ext = './driver/uBlock_Origin_1_40_8_0.crx'
 
         self.caps = DesiredCapabilities().CHROME
         self.caps["pageLoadStrategy"] = "eager"
@@ -155,7 +154,6 @@ class Driver:
         self.options.add_argument("--autoplay-policy=no-user-gesture-required")
         self.options.add_argument('--blink-settings=imagesEnabled=false')
         self.options.add_experimental_option("excludeSwitches", ["enable-logging"])
-        self.options.add_extension(self.add_block_ext)
         self.options.add_argument('headless')
 
         # инициализация веб-драйвера
