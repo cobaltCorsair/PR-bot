@@ -156,7 +156,7 @@ class Driver:
         self.options.add_argument('--blink-settings=imagesEnabled=false')
         self.options.add_experimental_option("excludeSwitches", ["enable-logging"])
         self.options.add_extension(self.add_block_ext)
-        # self.options.add_argument('headless')
+        self.options.add_argument('headless')
 
         # инициализация веб-драйвера
         self.driver = webdriver.Chrome(desired_capabilities=self.caps, options=self.options,
