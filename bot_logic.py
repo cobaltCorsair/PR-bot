@@ -8,6 +8,7 @@ import os
 
 from selenium import webdriver
 from selenium.common.exceptions import *
+from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
 
 from PyQt5 import QtWidgets, QtCore, QtGui
 from PyQt5.QtCore import QThread
@@ -144,13 +145,23 @@ class Driver:
     """Класс драйвера для запуска автоматизации"""
 
     def __init__(self):
+        # пути доступа к файлам
+        self.executable_path = './driver/chromedriver.exe'
+        self.add_block_ext = './driver/uBlock_Origin_1_40_8_0.crx'
+
+        self.caps = DesiredCapabilities().CHROME
+        self.caps["pageLoadStrategy"] = "eager"
         self.options = webdriver.ChromeOptions()
+        self.options.add_argument("--autoplay-policy=no-user-gesture-required")
         self.options.add_argument('--blink-settings=imagesEnabled=false')
         self.options.add_experimental_option("excludeSwitches", ["enable-logging"])
-        self.options.add_argument('headless')
-        self.executable_path = './driver/chromedriver.exe'
+        self.options.add_extension(self.add_block_ext)
+        # self.options.add_argument('headless')
+
         # инициализация веб-драйвера
-        self.driver = webdriver.Chrome(options=self.options, executable_path=self.executable_path)
+        self.driver = webdriver.Chrome(desired_capabilities=self.caps, options=self.options,
+                                       executable_path=self.executable_path)
+        self.driver.set_page_load_timeout(10)
         # инициализируем оба окна
         self.window_before = self.driver.window_handles[0]
         self.window_after = None
@@ -193,7 +204,7 @@ class BotReport:
 
             file.write(f'Успешно пройдено форумов: {len(BotReport.SUCCESSFUL_FORUMS)} \n'
                        f'Было пропущено форумов: {BotReport.get_all_errors_len()} \n'
-                       f'{PrBot.get_work_time()}')
+                       f'{PrBot.get_work_time()}\n')
 
             file.write(BotReport.CRITICAL_ERRORS)
 
