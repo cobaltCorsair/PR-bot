@@ -166,6 +166,7 @@ class BotReport:
     ACCOUNT_ERRORS = []
     TIMEOUT_ERRORS = []
     PR_POST_HAS_ALREADY = []
+    CRITICAL_ERRORS = 'Критических ошибок при прохождении не выявлено.'
 
     @staticmethod
     def get_all_errors_len():
@@ -193,6 +194,8 @@ class BotReport:
             file.write(f'Успешно пройдено форумов: {len(BotReport.SUCCESSFUL_FORUMS)} \n'
                        f'Было пропущено форумов: {BotReport.get_all_errors_len()} \n'
                        f'{PrBot.get_work_time()}')
+
+            file.write(BotReport.CRITICAL_ERRORS)
 
 
 class PrBot(QThread):
@@ -292,6 +295,14 @@ class PrBot(QThread):
             except StopIteration:
                 print('Рекламная тема закончилась, необходима новая!')
                 BotReport.get_bot_report()
+                application.set_enabled_stat_button()
+                self.chrome.driver.quit()
+                return False
+            except Exception as e:
+                template = "Было вызвано исключение типа {0}. Аргументы:\n{1!r}"
+                message = template.format(type(e).__name__, e.args)
+                print(message)
+                BotReport.CRITICAL_ERRORS = message
                 application.set_enabled_stat_button()
                 self.chrome.driver.quit()
                 return False
