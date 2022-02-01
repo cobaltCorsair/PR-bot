@@ -303,6 +303,7 @@ class PrBot(QThread):
                 message = template.format(type(e).__name__, e.args)
                 print(message)
                 BotReport.CRITICAL_ERRORS = message
+                BotReport.get_bot_report()
                 application.set_enabled_stat_button()
                 self.chrome.driver.quit()
                 return False
