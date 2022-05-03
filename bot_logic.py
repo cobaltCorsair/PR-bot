@@ -129,12 +129,15 @@ class GetPRMessage:
 
     def get_post_link(self):
         """Получаем ссылку на отправленное сообщение"""
+        time.sleep(3)
+        if 'tid=' in self.driver.current_url:
+            time.sleep(3)
         self.pr_post_link = self.driver.current_url
         return True
 
     def post_pr_code_with_link(self):
         """Отправляем шаблон рекламы вместе со ссылкой"""
-        end_scheme = f"{self.pr_code} {self.pr_post_link}"
+        end_scheme = f"{self.pr_code} [url={self.pr_post_link}]ваша реклама[/url]"
         json_child_code = json.dumps(end_scheme)
 
         self.get_json(json_child_code)
