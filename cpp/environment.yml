@@ -1,0 +1,8 @@
+name: prbot-cpp
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - cmake>=3.21
+  - ninja
+  - qt6-main>=6.2

@@ -1,0 +1,64 @@
+name: Windows build
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/windows-build.yml'
+      - 'cpp/**'
+      - 'src/icon.png'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Windows x64 / Qt 6.8.3
+    runs-on: windows-2022
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@a9c63c7c123f3069cff414e7e482d95dfa9d8125 # v4
+        with:
+          version: '6.8.3'
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          cache: true
+
+      - name: Build and prepare portable package
+        run: ./cpp/build_windows.ps1
+
+      - name: Upload Windows ZIP
+        id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: PR-Bot-windows-x64
+          path: cpp/dist/PR-Bot-windows-x64/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Show download instructions
+        env:
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+        run: |
+          @"
+          ## PR-Bot for Windows x64
+          [Download the application ZIP]($env:ARTIFACT_URL)
+
+          Extract the entire archive, install the included Visual C++ Runtime,
+          and open **prbot.exe**. First-launch instructions are in **README.txt**.
+          "@ >> $env:GITHUB_STEP_SUMMARY

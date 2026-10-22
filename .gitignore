@@ -2,5 +2,11 @@
 *.iml
 .idea
 out
+/cpp/build/
+/cpp/build-windows/
+/cpp/dist/
+/cpp/out/
+/cpp/.env/
+/cpp/.conda/
 !/log.txt
 !/bot_logic.spec
