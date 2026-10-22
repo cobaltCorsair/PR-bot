@@ -2,6 +2,7 @@
 
 #include "config.h"
 #include "run_log.h"
+#include "run_state.h"
 
 #include <QDateTime>
 #include <QObject>
@@ -69,6 +70,8 @@ signals:
     void reportWritten(const QString &path);
     void runCompleted(bool hasErrors, bool cancelled);
     void activityChanged(const QString &forumUrl, const QString &stage);
+    void forumUpdated(const QString &url, const QString &status, const QString &detail,
+                      const QString &topic, const QString &sourceLink, const QString &targetLink);
     void statisticsChanged(int processed, int successful, int skipped, int failed);
 
 private:
@@ -78,8 +81,12 @@ private:
     void enterForum(WebDriverClient &driver);
     void visitForum(WebDriverClient &driver, const QString &forumUrl,
                     const QString &ancestorUrl);
-    bool firstEnter(WebDriverClient &driver);
-    bool openAccountTopic(WebDriverClient &driver);
+    bool firstEnter(WebDriverClient &driver, bool selectTopic = true, const QString &expectedAuthor = {});
+    void prepareSource(WebDriverClient &driver);
+    void recoveryLogin(WebDriverClient &driver, const QString &forum, const QString &author);
+    void recoverForum(WebDriverClient &driver);
+    void saveProgress();
+    bool openAccountTopic(WebDriverClient &driver, bool selectTopic = true, const QString &expectedAuthor = {});
     bool getPrMessages(WebDriverClient &driver);
     bool checkImageAndFormAnswer(WebDriverClient &driver);
     void forcedLogin(WebDriverClient &driver);
@@ -96,6 +103,9 @@ private:
     BotReport m_report;
     ForumRunResult m_currentResult;
     std::unique_ptr<RunLog> m_log;
+    std::unique_ptr<RunState> m_state;
+    ForumProgress m_progressState;
+    bool m_sourcePrepared = false;
     QString m_stage;
     bool m_logWriteWarningSent = false;
     std::shared_ptr<RunControl> m_control;

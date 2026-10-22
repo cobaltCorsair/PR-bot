@@ -88,3 +88,24 @@ QString ForumLinks::forumFromTopic(const QString &topicUrl)
     url.setUserInfo(QString());
     return url.toString(QUrl::FullyEncoded);
 }
+
+QString ForumLinks::normalizeForum(const QString &input)
+{
+    QString value = input.trimmed();
+    if (!value.contains("://")) value.prepend("https://");
+    QUrl url(value);
+    if (!isWebUrl(url) || !url.userInfo().isEmpty()) return {};
+    url.setFragment(QString());
+    url.setQuery(QString());
+    url = url.adjusted(QUrl::NormalizePathSegments | QUrl::StripTrailingSlash);
+    if (url.path() == "/") url.setPath(QString());
+    return url.toString(QUrl::FullyEncoded);
+}
+
+QString ForumLinks::forumIdentity(const QString &input)
+{
+    const QString normalized = normalizeForum(input);
+    if (normalized.isEmpty()) return {};
+    const QUrl url(normalized);
+    return hostKey(url) + ':' + QString::number(portKey(url)) + pathKey(url);
+}

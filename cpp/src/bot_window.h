@@ -21,6 +21,8 @@ class QStackedWidget;
 class QComboBox;
 class QAction;
 class DriverUpdater;
+class ForumListModel;
+class QTableView;
 struct RunControl;
 
 // Окно отвечает за форму и отображение событий. Браузерный сценарий находится
@@ -54,11 +56,17 @@ private slots:
 
 private:
     void setStatus(const QString &text, const QString &state);
-    void runBot(bool checkOnly);
+    void runBot(bool checkOnly, bool resume = false, const QStringList &only = {});
+    void resumeBot();
+    void refreshProgress(bool applyResults = true);
+    void refreshForumCount();
+    QStringList selectedForums() const;
+    void resolveSelected();
     BotConfig readForm() const;
     void populateForm(const BotConfig &config);
     QWidget *buildCampaign();
     QWidget *buildJournal();
+    QWidget *buildForums();
     void showPage(int index);
     void refreshForumFile();
     QString resolvedDriverPath() const;
@@ -102,6 +110,15 @@ private:
     QPushButton *m_save = nullptr;
     QPushButton *m_campaignNav = nullptr;
     QPushButton *m_journalNav = nullptr;
+    QPushButton *m_forumsNav = nullptr;
+    QPushButton *m_resume = nullptr;
+    QPushButton *m_checkSelected = nullptr;
+    QPushButton *m_publishSelected = nullptr;
+    QPushButton *m_resolveSelected = nullptr;
+    ForumListModel *m_forumModel = nullptr;
+    QTableView *m_forumTable = nullptr;
+    QWidget *m_forumTools = nullptr;
+    bool m_hasUnfinished = false;
     QPushButton *m_advancedToggle = nullptr;
     QPushButton *m_chooseDriver = nullptr;
     QPushButton *m_checkDriver = nullptr;

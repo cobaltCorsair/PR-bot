@@ -39,6 +39,20 @@ jobs:
           arch: win64_msvc2022_64
           cache: true
 
+      - name: Run unit, UI and local browser tests
+        run: ./cpp/test_windows.ps1
+
+      - name: Upload test diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: Windows-test-results
+          path: |
+            cpp/build-windows/test-results.xml
+            cpp/build-windows/Testing/Temporary/LastTest.log
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Build and prepare portable package
         run: ./cpp/build_windows.ps1
 

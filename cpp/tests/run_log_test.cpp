@@ -3,6 +3,7 @@
 
 #include <QCoreApplication>
 #include <QFile>
+#include <QDir>
 #include <QTemporaryDir>
 #include <exception>
 #include <iostream>
@@ -33,10 +34,13 @@ int main(int argc, char **argv)
     const QString path = directory.filePath("log.txt");
     const QString password = "sensitive-password";
     const QString advertising = "[b]first line\nsecond line[/b]";
+    QString firstArchive;
+    QString firstContents;
     try {
         {
             RunLog journal(path, {password, advertising});
             journal.open();
+            firstArchive = journal.archivePath();
             const QString first = journal.append(LogLevel::Info, "Проверка темы",
                 "Открыта рекламная тема", "https://forum.example/");
             // Файл доступен ещё во время прохода, до закрытия журнала.
@@ -56,6 +60,8 @@ int main(int argc, char **argv)
             if (!journal.appendReport("Успешно: 0\nПричина: " + password + '\n' + advertising))
                 return fail("Could not append the summary.");
             const QString saved = readText(path);
+            firstContents = saved;
+            if (readText(firstArchive) != saved) return fail("Archive differs from current log.");
             if (!saved.startsWith(first) || !saved.contains("Успешно: 0\nПричина:")
                 || saved.contains(password) || saved.contains(advertising))
                 return fail("Appending the summary lost earlier events or exposed a secret.");
@@ -64,6 +70,9 @@ int main(int argc, char **argv)
             RunLog nextRun(path, {});
             nextRun.open();
             const QString line = nextRun.append(LogLevel::Warning, "Старт", "Новый проход");
+            if (readText(firstArchive) != firstContents || nextRun.archivePath() == firstArchive
+                || QDir(RunLog::historyDirectory(path)).entryList({"*.log"}, QDir::Files).size() != 2)
+                return fail("New run overwrote or lost the previous archive.");
             if (readText(path) != line + '\n')
                 return fail("A new run mixed events with the previous run.");
         }

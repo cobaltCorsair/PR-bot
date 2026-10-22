@@ -109,6 +109,12 @@ QString stylesheet()
         QTextEdit#log { background: #ffffff; border: 1px solid #e0e5d7; border-radius: 10px;
             padding: 12px 16px; color: #41543c; selection-background-color: #dce8ce;
             font-family: Menlo, Consolas, monospace; font-size: 11px; }
+        QTableView#forumTable { background: #ffffff; alternate-background-color: #f5f7ef;
+            color: #41543c; border: 1px solid #e0e5d7; border-radius: 8px;
+            gridline-color: #e9edde; selection-background-color: #dce8ce; selection-color: #203f32; }
+        QHeaderView::section { background: #edf1e5; color: #50644b; border: none;
+            border-right: 1px solid #e0e5d7; border-bottom: 1px solid #e0e5d7; padding: 10px 8px; }
+        QTableView#forumTable::item { padding: 6px; }
         QToolTip { background: #203f32; color: #f3f5eb; border: none; padding: 7px; }
     )QSS");
 }

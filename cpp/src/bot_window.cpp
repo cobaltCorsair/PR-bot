@@ -1,5 +1,12 @@
 #include "bot_window.h"
 
+#include "forum_list_model.h"
+#include "forum_links.h"
+#include "run_state.h"
+#include <QTableView>
+#include <QHeaderView>
+#include <QInputDialog>
+
 #include "pr_bot.h"
 #include "driver_updater.h"
 #include "run_history_dialog.h"
@@ -181,6 +188,7 @@ BotWindow::BotWindow(QWidget *parent)
     resize(1220, 840);
     setStyleSheet(UiTheme::stylesheet());
     m_driverUpdater = new DriverUpdater(this);
+    m_forumModel = new ForumListModel(this);
 
     auto *root = new QWidget(this);
     root->setObjectName("workspace");
@@ -212,12 +220,15 @@ BotWindow::BotWindow(QWidget *parent)
     side->addSpacing(5);
     m_campaignNav = new QPushButton("  Кампания", sidebar);
     m_journalNav = new QPushButton("  Журнал", sidebar);
+    m_forumsNav = new QPushButton("  Форумы", sidebar);
+    m_forumsNav->setObjectName("forumsNav");
+    m_forumsNav->setIcon(UiTheme::icon(UiTheme::Icon::Search, "#d0dfc8"));
     m_campaignNav->setObjectName("campaignNav");
     m_journalNav->setObjectName("journalNav");
     m_campaignNav->setIcon(UiTheme::icon(UiTheme::Icon::Campaign, "#d0dfc8"));
     m_journalNav->setIcon(UiTheme::icon(UiTheme::Icon::Journal, "#d0dfc8"));
     auto *navigation = new QButtonGroup(this);
-    for (auto *button : {m_campaignNav, m_journalNav}) {
+    for (auto *button : {m_campaignNav, m_forumsNav, m_journalNav}) {
         button->setProperty("role", "nav");
         button->setCheckable(true);
         button->setMinimumHeight(46);
@@ -269,6 +280,7 @@ BotWindow::BotWindow(QWidget *parent)
     m_pages = new QStackedWidget(main);
     m_pages->addWidget(buildCampaign());
     m_pages->addWidget(buildJournal());
+    m_pages->addWidget(buildForums());
     mainLayout->addWidget(m_pages, 1);
 
     // Управление проходом доступно на обоих экранах и не уезжает при прокрутке.
@@ -314,6 +326,10 @@ BotWindow::BotWindow(QWidget *parent)
     m_start->setMinimumWidth(174);
     m_start->setToolTip("Начать публикации · ⌘Enter / Ctrl+Enter");
     actions->addWidget(m_stop);
+    m_resume = new QPushButton("Продолжить", footer);
+    m_resume->setObjectName("resumeButton");
+    m_resume->setToolTip("Восстановить настройки и продолжить незавершённый проход");
+    actions->addWidget(m_resume);
     actions->addWidget(m_checkForums);
     actions->addWidget(m_start);
     footerLayout->addLayout(actions);
@@ -322,6 +338,8 @@ BotWindow::BotWindow(QWidget *parent)
     setCentralWidget(root);
 
     connect(m_campaignNav, &QPushButton::clicked, this, [this] { showPage(0); });
+    connect(m_forumsNav, &QPushButton::clicked, this, [this] { showPage(2); });
+    connect(m_resume, &QPushButton::clicked, this, &BotWindow::resumeBot);
     connect(m_journalNav, &QPushButton::clicked, this, [this] { showPage(1); });
     connect(m_start, &QPushButton::clicked, this, &BotWindow::startBot);
     connect(m_checkForums, &QPushButton::clicked, this, &BotWindow::checkForums);
@@ -369,6 +387,13 @@ BotWindow::BotWindow(QWidget *parent)
     });
     connect(m_checkLastPage, &QCheckBox::toggled, this, &BotWindow::updateLaunchStatus);
 
+    connect(m_forumModel, &QAbstractItemModel::dataChanged, this, [this](const QModelIndex &first) {
+        if (first.column() == 0) { refreshForumCount(); updateLaunchStatus(); }
+    });
+    connect(m_forumModel, &QAbstractItemModel::modelReset, this, [this] { refreshForumCount(); updateLaunchStatus(); });
+    connect(m_forumModel, &QAbstractItemModel::rowsInserted, this, [this] { refreshForumCount(); updateLaunchStatus(); });
+    connect(m_forumModel, &QAbstractItemModel::rowsRemoved, this, [this] { refreshForumCount(); updateLaunchStatus(); });
+    connect(m_forumTable->selectionModel(), &QItemSelectionModel::selectionChanged, this, [this] { updateLaunchStatus(); });
     auto *saveShortcut = new QShortcut(QKeySequence::Save, this);
     connect(saveShortcut, &QShortcut::activated, this, [this] { if (!m_busy) saveSettings(); });
     auto *openShortcut = new QShortcut(QKeySequence::Open, this);
@@ -393,6 +418,7 @@ BotWindow::BotWindow(QWidget *parent)
         appendLog(applicationLog(QString("Не удалось загрузить настройки: %1")
             .arg(QString::fromUtf8(error.what())), "ОШИБКА"));
     }
+    refreshProgress();
 }
 
 QWidget *BotWindow::buildCampaign()
@@ -480,7 +506,12 @@ QWidget *BotWindow::buildCampaign()
     choose->setIcon(UiTheme::icon(UiTheme::Icon::Folder));
     choose->setToolTip("Открыть файл со списком форумов · ⌘O / Ctrl+O");
     connect(choose, &QPushButton::clicked, this, &BotWindow::browseForums);
+    auto *editForums = new QPushButton("Открыть таблицу форумов", choose->parentWidget());
+    editForums->setObjectName("editForumsButton");
+    connect(editForums, &QPushButton::clicked, this, [this] { showPage(2); });
+
     targetsLayout->addWidget(choose);
+    targetsLayout->addWidget(editForums);
     auto *dropHint = makeHint("или перетащите файл сюда", targets);
     dropHint->setAlignment(Qt::AlignCenter);
     targetsLayout->addWidget(dropHint);
@@ -621,6 +652,206 @@ QWidget *BotWindow::buildCampaign()
     return scroll;
 }
 
+QWidget *BotWindow::buildForums()
+{
+    auto *page = new QWidget;
+    auto *layout = new QVBoxLayout(page);
+    layout->setContentsMargins(30, 6, 30, 20);
+    layout->setSpacing(12);
+    m_forumTools = new QWidget(page);
+    auto *tools = new QVBoxLayout(m_forumTools);
+    tools->setContentsMargins(0, 0, 0, 0);
+    auto *files = new QHBoxLayout;
+    auto *add = new QPushButton("Добавить");
+    auto *remove = new QPushButton("Удалить");
+    auto *importList = new QPushButton("Импорт .txt");
+    auto *exportList = new QPushButton("Экспорт .txt");
+    files->addWidget(add); files->addWidget(remove); files->addStretch();
+    files->addWidget(importList); files->addWidget(exportList);
+    tools->addLayout(files);
+    auto *run = new QHBoxLayout;
+    m_checkSelected = new QPushButton("Проверить выбранные");
+    m_publishSelected = new QPushButton("Обойти выбранные");
+    m_resolveSelected = new QPushButton("Сверить вручную…");
+    m_checkSelected->setObjectName("checkSelectedButton");
+    m_publishSelected->setObjectName("publishSelectedButton");
+    m_resolveSelected->setObjectName("resolveSelectedButton");
+    run->addWidget(m_checkSelected); run->addWidget(m_publishSelected);
+    run->addStretch(); run->addWidget(m_resolveSelected);
+    tools->addLayout(run);
+    layout->addWidget(m_forumTools);
+    auto *hint = new QLabel("Галочка включает форум в общий обход. Для отдельных строк используйте Ctrl / ⌘ или Shift. Двойной щелчок открывает ссылку или меняет адрес.");
+    hint->setWordWrap(true);
+    hint->setProperty("role", "muted");
+    layout->addWidget(hint);
+    m_forumTable = new QTableView(page);
+    m_forumTable->setObjectName("forumTable");
+    m_forumTable->setModel(m_forumModel);
+    m_forumTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_forumTable->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    m_forumTable->setAlternatingRowColors(true);
+    m_forumTable->setWordWrap(false);
+    m_forumTable->verticalHeader()->setDefaultSectionSize(42);
+    m_forumTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+    m_forumTable->setColumnWidth(0, 250);
+    m_forumTable->setColumnWidth(1, 165);
+    m_forumTable->setColumnWidth(2, 300);
+    for (int col = 3; col < 6; ++col) m_forumTable->setColumnWidth(col, 115);
+    layout->addWidget(m_forumTable, 1);
+    auto *selectionDetail = new QLabel("Выберите строку, чтобы открыть тему и публикации.", page);
+    selectionDetail->setTextFormat(Qt::PlainText);
+    selectionDetail->setWordWrap(true);
+    layout->addWidget(selectionDetail);
+    auto *links = new QHBoxLayout;
+    auto *topicLink = new QPushButton("Тема форума ↗");
+    auto *sourceLink = new QPushButton("Взаимность ↗");
+    auto *targetLink = new QPushButton("Наш ответ ↗");
+    const QList<QPushButton *> linkButtons{topicLink, sourceLink, targetLink};
+    for (int i = 0; i < linkButtons.size(); ++i) {
+        auto *button = linkButtons[i];
+        button->setProperty("role", "quiet");
+        button->setEnabled(false);
+        links->addWidget(button);
+        connect(button, &QPushButton::clicked, this, [this, i] {
+            const auto selected = m_forumTable->selectionModel()->selectedRows();
+            if (selected.size() != 1) return;
+            const QUrl url(m_forumModel->link(m_forumModel->index(selected.first().row(), ForumListModel::Topic + i)));
+            if (url.scheme() == "http" || url.scheme() == "https") QDesktopServices::openUrl(url);
+        });
+    }
+    links->addStretch();
+    layout->addLayout(links);
+    const auto refreshSelection = [this, selectionDetail, linkButtons] {
+        const auto selected = m_forumTable->selectionModel()->selectedRows();
+        const int row = selected.size() == 1 ? selected.first().row() : -1;
+        selectionDetail->setText(row >= 0 ? m_forumModel->data(m_forumModel->index(row, ForumListModel::Detail)).toString()
+            : selected.isEmpty() ? "Выберите строку, чтобы открыть тему и публикации."
+                                 : QString("Выбрано форумов: %1").arg(selected.size()));
+        for (int i = 0; i < linkButtons.size(); ++i) {
+            const QString url = row < 0 ? QString() : m_forumModel->link(m_forumModel->index(row, ForumListModel::Topic + i));
+            linkButtons[i]->setEnabled(!url.isEmpty());
+            linkButtons[i]->setToolTip(url);
+        }
+    };
+    connect(m_forumTable->selectionModel(), &QItemSelectionModel::selectionChanged, this, refreshSelection);
+    connect(m_forumModel, &QAbstractItemModel::dataChanged, this, refreshSelection);
+
+    connect(m_forumTable, &QTableView::doubleClicked, this, [this](const QModelIndex &index) {
+        const QUrl url(m_forumModel->link(index));
+        if (url.isValid() && (url.scheme() == "http" || url.scheme() == "https")) QDesktopServices::openUrl(url);
+    });
+    connect(add, &QPushButton::clicked, this, [this] {
+        bool ok = false;
+        const QString url = QInputDialog::getText(this, "Добавить форум", "Адрес форума:", QLineEdit::Normal, {}, &ok);
+        if (ok && !m_forumModel->addUrl(url))
+            QMessageBox::information(this, "Адрес не добавлен", "Укажите адрес HTTP/HTTPS, которого ещё нет в таблице.");
+    });
+    connect(remove, &QPushButton::clicked, this, [this] {
+        QList<int> rows;
+        for (const auto &index : m_forumTable->selectionModel()->selectedRows()) rows.append(index.row());
+        m_forumModel->removeRowsAt(rows);
+    });
+    connect(importList, &QPushButton::clicked, this, &BotWindow::browseForums);
+    connect(exportList, &QPushButton::clicked, this, [this] {
+        const QString path = QFileDialog::getSaveFileName(this, "Экспорт включённых форумов", "forums.txt", "Текст (*.txt)");
+        if (path.isEmpty()) return;
+        try { m_forumModel->exportFile(path); }
+        catch (const std::exception &error) { QMessageBox::warning(this, "Экспорт", QString::fromUtf8(error.what())); }
+    });
+    connect(m_checkSelected, &QPushButton::clicked, this, [this] { runBot(true, false, selectedForums()); });
+    connect(m_publishSelected, &QPushButton::clicked, this, [this] { runBot(false, false, selectedForums()); });
+    connect(m_resolveSelected, &QPushButton::clicked, this, &BotWindow::resolveSelected);
+    return page;
+}
+
+QStringList BotWindow::selectedForums() const
+{
+    QStringList result;
+    if (!m_forumTable) return result;
+    for (const auto &index : m_forumTable->selectionModel()->selectedRows()) {
+        const QString url = m_forumModel->data(index, Qt::DisplayRole).toString();
+        if (!ForumLinks::forumIdentity(url).isEmpty()) result.append(url);
+    }
+    return result;
+}
+
+void BotWindow::refreshProgress(bool applyResults)
+{
+    try {
+        RunState state(RunState::pathForReport(reportPath()));
+        m_hasUnfinished = state.load() && state.hasUnfinished();
+        if (applyResults && state.matches(readForm()))
+            for (const auto &row : state.entries()) m_forumModel->updateResult(row.url, row.status(), row.detail,
+                row.topicUrl, row.sourceLink.isEmpty() ? row.sourceProof.value("topic_url").toString() : row.sourceLink, row.targetLink);
+    } catch (const std::exception &error) {
+        m_hasUnfinished = false;
+        appendLog(applicationLog(QString::fromUtf8(error.what()), "ОШИБКА"));
+    }
+    updateLaunchStatus();
+}
+
+void BotWindow::resumeBot()
+{
+    if (m_busy || m_driverUpdater->isBusy()) return;
+    try {
+        RunState state(RunState::pathForReport(reportPath()));
+        if (!state.load() || !state.hasUnfinished()) return;
+        if (!state.matches(readForm())) {
+            auto config = state.campaign();
+            config.chromeDriverPath = m_driverPath->text();
+            populateForm(config);
+            appendLog(applicationLog("Восстановлены параметры незавершённого прохода."));
+        }
+        // Возвращаем отсутствующие незавершённые строки из снимка прохода.
+        // Галочки у существующих строк остаются пользовательским выбором.
+        const auto rows = m_forumModel->targets();
+        for (const auto &url : state.unfinished()) {
+            bool present = false;
+            for (const auto &row : rows) present |= ForumLinks::forumIdentity(row.url) == ForumLinks::forumIdentity(url);
+            if (!present) m_forumModel->addUrl(url);
+        }
+        refreshProgress();
+        auto config = readForm();
+        const QString issue = launchIssue(config);
+        if (!issue.isEmpty()) { setStatus(issue, "attention"); showPage(0); return; }
+        const auto unfinished = state.unfinished(m_forumModel->enabledUrls());
+        if (unfinished.isEmpty()) { setStatus("Нет незавершённых включённых форумов", "attention"); return; }
+        runBot(false, true, unfinished);
+    } catch (const std::exception &error) {
+        QMessageBox::warning(this, "Продолжение", QString::fromUtf8(error.what()));
+    }
+}
+
+void BotWindow::resolveSelected()
+{
+    if (m_busy || selectedForums().size() != 1) return;
+    try {
+        RunState state(RunState::pathForReport(reportPath()));
+        if (!state.load()) return;
+        const QString url = selectedForums().first();
+        const auto row = state.entry(url);
+        if (!row.isPartial()) {
+            QMessageBox::information(this, "Сверка", "В этой строке нет незавершённой пары публикаций."); return;
+        }
+        QMessageBox dialog(QMessageBox::Question, "Результат ручной сверки",
+            "Откройте обе темы по ссылкам в таблице и проверьте сообщения этой попытки.\n\n"
+            "«Обеих нет» разрешит новую пару. «Есть только взаимность» разрешит отправить наш ответ после повторной сверки первого сообщения.",
+            QMessageBox::Cancel, this);
+        auto *complete = dialog.addButton("Обе публикации есть", QMessageBox::AcceptRole);
+        auto *replyMissing = dialog.addButton("Проверено: есть только взаимность", QMessageBox::ActionRole);
+        auto *reset = dialog.addButton("Проверено: обеих нет", QMessageBox::DestructiveRole);
+        dialog.setDefaultButton(QMessageBox::Cancel);
+        dialog.exec();
+        if (dialog.clickedButton() == complete) state.resolve(url, true);
+        else if (dialog.clickedButton() == replyMissing) state.resolveReplyMissing(url);
+        else if (dialog.clickedButton() == reset) state.resolve(url, false);
+        else return;
+        refreshProgress();
+    } catch (const std::exception &error) {
+        QMessageBox::warning(this, "Сверка", QString::fromUtf8(error.what()));
+    }
+}
+
 QWidget *BotWindow::buildJournal()
 {
     auto *page = new QWidget;
@@ -758,8 +989,10 @@ void BotWindow::browseForums()
 {
     const QString path = QFileDialog::getOpenFileName(
         this, "Выберите список форумов", {}, "Текстовые файлы (*.txt);;Все файлы (*)");
-    if (!path.isEmpty())
-        m_forumsFile->setText(path);
+    if (!path.isEmpty()) {
+        if (m_forumsFile->text() == path) refreshForumFile();
+        else m_forumsFile->setText(path);
+    }
 }
 
 void BotWindow::browseChromeDriver()
@@ -780,18 +1013,24 @@ void BotWindow::checkForums()
     runBot(true);
 }
 
-void BotWindow::runBot(bool checkOnly)
+void BotWindow::runBot(bool checkOnly, bool resume, const QStringList &only)
 {
     if (m_workerThread || m_driverUpdater->isBusy())
         return;
-    refreshForumFile();
     BotConfig config = readForm();
     config.checkOnly = checkOnly;
+    config.resumeRun = resume;
+    config.onlyForums = only;
     if (!launchIssue(config).isEmpty()) {
         updateLaunchStatus();
         return;
     }
     config.chromeDriverPath = resolvedDriverPath();
+    try { config.save(settingsPath()); }
+    catch (const std::exception &error) {
+        setStatus(QString::fromUtf8(error.what()), "attention");
+        return;
+    }
     m_runningCheck = checkOnly;
     m_runMode->setText(checkOnly ? "ПРОВЕРКА БЕЗ ПУБЛИКАЦИИ" : "ПУБЛИКАЦИЯ");
     m_successMetricLabel->setText(checkOnly ? "Готовы" : "Успешно");
@@ -832,6 +1071,7 @@ void BotWindow::runBot(bool checkOnly)
         for (int index = 0; index < 4; ++index)
             m_metricValues[index]->setText(QString::number(values[index]));
     });
+    connect(worker, &PrBot::forumUpdated, m_forumModel, &ForumListModel::updateResult);
     connect(worker, &PrBot::logMessage, this, &BotWindow::appendLog);
     connect(worker, &PrBot::reportWritten, this, [this](const QString &) {
         m_statistics->setEnabled(true);
@@ -859,6 +1099,7 @@ void BotWindow::runBot(bool checkOnly)
         m_workerThread = nullptr;
         m_statistics->setEnabled(QFileInfo::exists(reportPath()));
         m_control.reset();
+        refreshProgress(!m_runningCheck);
         setStatus(m_completionText, m_completionState);
         m_progressLabel->setText(QString("Обработано %1% списка · полный журнал доступен в отчёте")
                                     .arg(m_progress->value()));
@@ -917,6 +1158,9 @@ void BotWindow::setBusy(bool busy)
 {
     m_busy = busy;
     m_campaignForm->setEnabled(!busy);
+    m_forumTools->setEnabled(!busy);
+    m_forumTable->setEditTriggers(busy ? QAbstractItemView::NoEditTriggers : QAbstractItemView::DoubleClicked | QAbstractItemView::EditKeyPressed);
+    m_resume->setVisible(!busy);
     m_load->setEnabled(!busy);
     m_save->setEnabled(!busy);
     m_start->setVisible(!busy);
@@ -955,12 +1199,8 @@ QString BotWindow::launchIssue(const BotConfig &config) const
     if (!topic.isValid() || topic.host().isEmpty()
         || (topic.scheme() != "http" && topic.scheme() != "https"))
         return "Укажите полную ссылку на тему взаимной рекламы";
-    if (config.forumsFile.isEmpty())
-        return "Выберите список форумов";
-    if (!QFileInfo::exists(config.forumsFile) || !m_forumsReadable)
-        return "Не удалось прочитать список форумов";
-    if (m_forumCount == 0)
-        return "Список форумов пуст";
+    if (config.onlyForums.isEmpty() && m_forumModel->enabledUrls().isEmpty())
+        return "Добавьте или включите форумы в таблице";
     if (config.useAccount && config.login.trimmed().isEmpty())
         return "Введите логин аккаунта в дополнительных параметрах";
     if (config.useAccount && config.password.isEmpty())
@@ -974,27 +1214,27 @@ QString BotWindow::launchIssue(const BotConfig &config) const
 
 void BotWindow::refreshForumFile()
 {
-    m_forumCount = 0;
-    m_forumsReadable = false;
     const QString path = m_forumsFile->text().trimmed();
-    QFile file(path);
-    if (!path.isEmpty() && file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        m_forumsReadable = true;
-        QTextStream stream(&file);
-        stream.setEncoding(QStringConverter::Utf8);
-        while (!stream.atEnd()) {
-            const QString line = stream.readLine().trimmed();
-            if (!line.isEmpty() && !line.startsWith('#'))
-                ++m_forumCount;
-        }
-    }
-    m_forumFileName->setText(path.isEmpty() ? "Файл не выбран" : QFileInfo(path).fileName());
+    m_forumFileName->setText(path.isEmpty() ? "Список в таблице" : QFileInfo(path).fileName());
     m_forumFileName->setToolTip(path);
-    m_forumsStatus->setText(path.isEmpty() ? "Выберите список для обхода"
-        : !m_forumsReadable ? "Файл недоступен для чтения"
-        : m_forumCount == 0 ? "В файле пока нет адресов"
-        : counted(m_forumCount, "форум", "форума", "форумов") + " в списке");
-    m_forumsStatus->setProperty("state", m_forumsReadable && m_forumCount > 0 ? "ready" : "attention");
+    try {
+        if (!path.isEmpty()) m_forumModel->importFile(path);
+        m_forumsReadable = !path.isEmpty();
+    } catch (const std::exception &error) {
+        m_forumsReadable = false;
+        m_forumsStatus->setText(QString::fromUtf8(error.what()));
+        return;
+    }
+    refreshForumCount();
+}
+
+void BotWindow::refreshForumCount()
+{
+    if (!m_forumsStatus) return;
+    m_forumCount = m_forumModel->enabledUrls().size();
+    m_forumsStatus->setText(QString("Включено %1 из %2 · настройка в разделе «Форумы»")
+        .arg(m_forumCount).arg(m_forumModel->rowCount()));
+    m_forumsStatus->setProperty("state", m_forumCount > 0 ? "ready" : "attention");
     m_forumsStatus->style()->unpolish(m_forumsStatus);
     m_forumsStatus->style()->polish(m_forumsStatus);
 }
@@ -1010,6 +1250,15 @@ void BotWindow::updateLaunchStatus()
     const QString publicationIssue = launchIssue(config);
     config.checkOnly = true;
     const QString checkIssue = launchIssue(config);
+    m_resume->setEnabled(m_hasUnfinished && !m_driverUpdater->isBusy());
+    m_resume->setVisible(m_hasUnfinished);
+    const auto selected = selectedForums();
+    BotConfig selectedConfig = readForm();
+    selectedConfig.onlyForums = selected;
+    m_publishSelected->setEnabled(!selected.isEmpty() && launchIssue(selectedConfig).isEmpty());
+    selectedConfig.checkOnly = true;
+    m_checkSelected->setEnabled(!selected.isEmpty() && launchIssue(selectedConfig).isEmpty());
+    m_resolveSelected->setEnabled(selected.size() == 1);
     m_start->setEnabled(publicationIssue.isEmpty());
     m_checkForums->setEnabled(checkIssue.isEmpty());
     const QString status = publicationIssue.isEmpty() ? "Всё готово к запуску"
@@ -1053,8 +1302,10 @@ void BotWindow::showPage(int index)
     m_pages->setCurrentIndex(index);
     m_campaignNav->setChecked(index == 0);
     m_journalNav->setChecked(index == 1);
-    m_pageTitle->setText(index == 0 ? "Кампания" : "Журнал работы");
+    m_forumsNav->setChecked(index == 2);
+    m_pageTitle->setText(index == 0 ? "Кампания" : index == 2 ? "Форумы" : "Журнал работы");
     m_pageDescription->setText(index == 0 ? "Бот размещает ваше объявление на выбранных форумах и публикует ответную рекламу в вашей теме."
+                                         : index == 2 ? "Выберите площадки, проверьте результаты и повторите обход нужных строк."
                                          : "Ход обхода, подтверждённые публикации и события.");
 }
 
@@ -1093,6 +1344,8 @@ BotConfig BotWindow::readForm() const
     config.login = m_login->text();
     config.password = m_password->text();
     config.checkLastPage = m_checkLastPage->isChecked();
+    config.useForumTable = true;
+    config.targets = m_forumModel->targets();
     return config;
 }
 
@@ -1110,7 +1363,10 @@ void BotWindow::populateForm(const BotConfig &config)
     m_checkLastPage->setChecked(config.checkLastPage);
     m_credentials->setVisible(config.useAccount);
     m_advancedToggle->setChecked(config.useAccount || !QFileInfo(resolvedDriverPath()).isExecutable());
-    refreshForumFile();
+    if (config.useForumTable) m_forumModel->setTargets(config.targets);
+    else refreshForumFile();
+    refreshForumCount();
+    refreshProgress();
     updateLaunchStatus();
 }
 

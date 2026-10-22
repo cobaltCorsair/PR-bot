@@ -23,7 +23,10 @@ public:
     ForumPage(WebDriverClient &driver, std::function<void()> checkpoint = {});
     void checkReady(); // Только чтение: аккаунт, форма и кнопка отправки.
     QString publish(const QString &message, const QString &requiredBacklink = {},
-                    const std::function<void()> &beforeSubmit = {}, int timeoutMs = 15000);
+                    const std::function<void()> &beforeSubmit = {}, int timeoutMs = 15000,
+                    const std::function<void(const QJsonObject &)> &prepared = {});
+    // Только чтение: сверка после потери связи, без повторного клика.
+    QString findPublished(const QJsonObject &proof, bool requireNew = true);
 private:
     QJsonObject postingSnapshot();
     WebDriverClient &m_driver;

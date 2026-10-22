@@ -1,5 +1,9 @@
 #include "../src/bot_window.h"
 #include "../src/config.h"
+#include "../src/forum_list_model.h"
+#include "../src/run_state.h"
+#include <QTableView>
+#include <QPlainTextEdit>
 
 #include <QAction>
 #include <QApplication>
@@ -77,6 +81,10 @@ int main(int argc, char **argv)
         // Старт в этом тесте не вызывается, файл не запускается как ChromeDriver.
         config.chromeDriverPath = QCoreApplication::applicationFilePath();
         config.save(directory.filePath("settings.json"));
+        {
+            RunState state(directory.filePath("progress.json"));
+            state.begin(config, {"https://one.example"});
+        }
         require(QDir::setCurrent(directory.path()), "Cannot enter UI fixture directory.");
         {
             BotWindow window;
@@ -88,6 +96,8 @@ int main(int argc, char **argv)
             auto *account = find<QCheckBox>(window, "useAccount");
             auto *scroll = find<QScrollArea>(window, "campaignScroll");
             require(start->isEnabled(), "Valid form did not enable launch.");
+            require(find<QPushButton>(window, "resumeButton")->isVisible()
+                && find<QPushButton>(window, "resumeButton")->isEnabled(), "Pending progress did not enable resume");
             require(!credentials->isVisible(), "Unused credentials should be hidden.");
             require(scroll->horizontalScrollBar()->maximum() == 0, "Wide layout overflows horizontally.");
             require(find<QWidget>(window, "targetsCard")->x() > find<QWidget>(window, "editorCard")->x(),
@@ -138,9 +148,32 @@ int main(int argc, char **argv)
             require(dropArea->y() > find<QWidget>(window, "editorCard")->y(),
                     "Compact layout did not stack the sections.");
             require(scroll->horizontalScrollBar()->maximum() == 0 && start->isVisible()
-                    && window.rect().contains(start->mapTo(&window, QPoint(0, 0))),
+                    && window.rect().contains(QRect(start->mapTo(&window, QPoint(0, 0)), start->size())),
                     "Compact layout clipped the launch action or created horizontal overflow.");
             saveView(window, previews, "compact");
+
+            find<QPushButton>(window, "forumsNav")->click();
+            auto *table = find<QTableView>(window, "forumTable");
+            auto *model = qobject_cast<ForumListModel *>(table->model());
+            require(table->isVisible() && model && model->rowCount() == 4, "Forum table navigation failed");
+            for (int row = 0; row < model->rowCount(); ++row) model->setData(model->index(row, 0), Qt::Unchecked, Qt::CheckStateRole);
+            require(!start->isEnabled(), "Disabled forums enabled full launch");
+            table->selectRow(1);
+            require(find<QPushButton>(window, "publishSelectedButton")->isEnabled()
+                && find<QPushButton>(window, "checkSelectedButton")->isEnabled(), "Explicit selection cannot run a disabled row");
+            table->clearSelection();
+            require(!find<QPushButton>(window, "publishSelectedButton")->isEnabled(), "Empty selection enabled selective launch");
+            model->setData(model->index(0, 0), Qt::Checked, Qt::CheckStateRole);
+            require(start->isEnabled(), "Table checkbox did not restore readiness");
+            model->updateResult("https://one.example", "Успешно", "Обе публикации подтверждены",
+                "https://one.example/viewtopic.php?id=1", "https://your-forum.example/viewtopic.php?id=14#p100", "https://one.example/viewtopic.php?id=1#p200");
+            table->selectRow(0);
+            saveView(window, previews, "forums");
+            auto *editor = find<QPlainTextEdit>(window, "advertisement");
+            const QString code = editor->toPlainText();
+            editor->clear();
+            require(!start->isEnabled() && find<QPushButton>(window, "checkForumsButton")->isEnabled(), "Read-only check requires an advertisement");
+            editor->setPlainText(code);
 
             window.resize(1220, 840);
             find<QPushButton>(window, "journalNav")->click();

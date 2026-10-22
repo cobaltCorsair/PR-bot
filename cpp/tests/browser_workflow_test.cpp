@@ -1,6 +1,7 @@
 #include "../src/bot_window.h"
 #include "../src/forum_page.h"
 #include "../src/pr_bot.h"
+#include "../src/run_state.h"
 #include "../src/webdriver_client.h"
 
 #include <QApplication>
@@ -47,6 +48,9 @@ struct Site {
     bool firstAccountEmpty = false;
     bool delayed = false;
     bool partnership = false;
+    bool closed = false;
+    QString lastPageLink;
+    QString templateOverride;
     QString messageOverride;
     QList<Post> posts;
 };
@@ -146,7 +150,7 @@ private:
         QString pinned = postHtml(site, {1, 2, message(site)}, "topicpost");
         if (!state.partnership)
             pinned.replace("</div></div>", "<div class=code-box><pre>"
-                + message(site).toHtmlEscaped() + "</pre></div></div></div>");
+                + (state.templateOverride.isEmpty() ? message(site) : state.templateOverride).toHtmlEscaped() + "</pre></div></div></div>");
         content += pinned;
         content += postHtml(site, {2, site == "source" ? 9 : 17, message(site)}, "endpost");
         QString delayed;
@@ -159,6 +163,8 @@ private:
         content += "</div><form method=post action='" + root(site) + "/post.php'>"
             "<textarea id=main-reply name=req_message></textarea>"
             "<input type=submit class='button submit' value=Отправить></form>";
+        if (state.closed) content.remove(QRegularExpression("<form.*?</form>", QRegularExpression::DotMatchesEverythingOption));
+        if (!state.lastPageLink.isEmpty()) content += "<div class=post-content><a href='" + state.lastPageLink + "'>Existing advertisement</a></div>";
         if (!delayed.isEmpty()) {
             // Асинхронное появление результата проверяет ожидание по DOM.
             const QByteArray json = QJsonDocument(QJsonArray{delayed}).toJson(QJsonDocument::Compact);
@@ -174,6 +180,11 @@ private:
         const QUrl url = QUrl::fromEncoded(requestTarget);
         const auto segments = url.path().split('/', Qt::SkipEmptyParts);
         const QString site = segments.value(0);
+        if (site.endsWith("-alias")) {
+            QString redirected = url.toString(); redirected.replace(site, site.left(site.size() - 6));
+            respond(socket, {}, "Location: " + redirected.toUtf8() + "\r\n", "302 Found");
+            return;
+        }
         if (site != "source" && site != "target" && site != "other") {
             respond(socket, {}, {}, "204 No Content");
             return;
@@ -259,6 +270,48 @@ QString run(Fixtures &fixtures, const QString &driver,
     require(finished, "Bot did not finish.");
     return readFile(directory.filePath("log.txt"));
 }
+QString execute(const BotConfig &config, const QTemporaryDir &directory)
+{
+    PrBot bot(config, directory.filePath("log.txt"));
+    bot.run();
+    return readFile(directory.filePath("log.txt"));
+}
+
+// Создаём состояние именно тем callback, который сохраняется до клика.
+// Новый PrBot затем воспроизводит запуск после потери процесса/подтверждения.
+void interruptedPair(Fixtures &fixture, const QString &driver, const QTemporaryDir &directory,
+                     const BotConfig &config, bool secondAttempt, bool targetMissing = false, bool aliases = false)
+{
+    RunState state(RunState::pathForReport(directory.filePath("log.txt")));
+    const QString target = fixture.root(aliases ? "target-alias" : "target");
+    state.begin(config, {target});
+    ForumProgress entry;
+    entry.url = target; entry.topicUrl = fixture.topic("target"); entry.targetAuthor = "17";
+    WebDriverClient browser(driver); browser.start();
+    browser.navigate(fixture.root("source") + "/login.php?action=in");
+    browser.navigate(fixture.topic("source"));
+    ForumPage page(browser);
+    const QString first = page.publish(fixture.message("target"), {}, {}, 15000, [&](const QJsonObject &proof) {
+        entry.sourceProof = proof; entry.phase = "source_submitting"; state.store(entry);
+    });
+    if (secondAttempt) {
+        entry.sourceLink = first;
+        browser.navigate(fixture.root("target") + "/login.php?action=in");
+        browser.navigate(fixture.topic("target"));
+        fixture.target.silent = targetMissing;
+        try {
+            page.publish(config.prCode + " [url=" + first + "]ваша реклама[/url]", first, {},
+                targetMissing ? 350 : 15000, [&](const QJsonObject &proof) {
+                    entry.targetProof = proof; entry.phase = "target_submitting"; state.store(entry);
+                });
+        } catch (const PublicationError &error) {
+            require(targetMissing && error.status() == PublicationError::Status::Unknown, "Unexpected seeded publication error");
+        }
+    }
+    browser.quit();
+    fixture.source.user = fixture.target.user = 0;
+}
+
 }
 
 int main(int argc, char **argv)
@@ -269,6 +322,117 @@ int main(int argc, char **argv)
         return 2;
     const QString driver = QString::fromLocal8Bit(argv[1]);
     try {
+        {
+            Fixtures fixture;
+            QTemporaryDir directory;
+            auto config = configuration(fixture, driver, directory);
+            config.checkOnly = true;
+            const QString report = execute(config, directory);
+            require(fixture.source.attempts == 0 && fixture.target.attempts == 0
+                && report.contains("Готов к публикации")
+                && !QFile::exists(directory.filePath("progress.json")), "Dry run posted or changed durable state");
+            std::cout << "Read-only campaign check passed.\n";
+        }
+        {
+            Fixtures fixture;
+            QTemporaryDir directory;
+            auto config = configuration(fixture, driver, directory, true);
+            config.useForumTable = true;
+            config.targets = {{fixture.root("target"), false}, {fixture.root("other"), false}};
+            config.onlyForums = {fixture.root("target")};
+            execute(config, directory);
+            require(fixture.target.posts.size() == 1 && fixture.other.requests == 0, "Selective run visited an unselected forum");
+            std::cout << "Selected forum override passed.\n";
+        }
+        {
+            Fixtures fixture;
+            QTemporaryDir directory;
+            auto config = configuration(fixture, driver, directory);
+            fixture.target.reject = true;
+            execute(config, directory);
+            RunState snapshot(directory.filePath("progress.json"));
+            require(snapshot.load() && snapshot.entry(fixture.root("target")).phase == "source_confirmed", "Rejected second reply checkpoint missing");
+            fixture.target.reject = false;
+            fixture.source.closed = true;
+            fixture.source.user = fixture.target.user = 0;
+            config.resumeRun = true;
+            const QString report = execute(config, directory);
+            require(fixture.source.attempts == 1 && fixture.target.attempts == 2 && fixture.target.posts.size() == 1
+                && report.contains("Успешно пройдено форумов: 1"), "Resume did not complete only the missing reply on a closed source topic");
+            const int attempts = fixture.source.attempts + fixture.target.attempts;
+            execute(config, directory);
+            require(attempts == fixture.source.attempts + fixture.target.attempts, "Completed resume reposted");
+            std::cout << "Rejected reply, closed source topic and completed resume passed.\n";
+        }
+        for (bool second : {false, true}) {
+            Fixtures fixture;
+            QTemporaryDir directory;
+            auto config = configuration(fixture, driver, directory);
+            interruptedPair(fixture, driver, directory, config, second);
+            const QByteArray checkpoint = readFile(directory.filePath("progress.json")).toUtf8();
+            config.checkOnly = true;
+            execute(config, directory);
+            require(readFile(directory.filePath("progress.json")).toUtf8() == checkpoint, "Dry run altered partial publication proof");
+            config.checkOnly = false; config.resumeRun = true;
+            fixture.source.firstAccountEmpty = true;
+            const QString report = execute(config, directory);
+            require(fixture.source.attempts == 1 && fixture.target.attempts == 1
+                && report.contains("Успешно пройдено форумов: 1"), "Crash reconciliation duplicated or lost a publication");
+            std::cout << "Interrupted phase " << (second ? "target" : "source") << " reconciled without duplicate.\n";
+        }
+        {
+            Fixtures fixture;
+            QTemporaryDir directory;
+            auto config = configuration(fixture, driver, directory);
+            interruptedPair(fixture, driver, directory, config, true, true);
+            fixture.target.silent = false;
+            config.resumeRun = true;
+            const QString report = execute(config, directory);
+            {
+                RunState state(directory.filePath("progress.json")); state.load();
+                require(fixture.source.attempts == 1 && fixture.target.attempts == 1
+                    && state.entry(fixture.root("target")).review && report.contains("Автоматический повтор заблокирован"),
+                    "Unknown target result was automatically resent");
+                state.resolveReplyMissing(fixture.root("target"));
+            }
+            const QString resumed = execute(config, directory);
+            require(fixture.source.attempts == 1 && fixture.target.attempts == 2
+                && fixture.target.posts.size() == 1 && resumed.contains("Успешно пройдено форумов: 1"),
+                "Manual target absence did not allow only the missing reply");
+            std::cout << "Unknown result blocks resend; manual review allows missing reply.\n";
+        }
+        {
+            Fixtures fixture;
+            QTemporaryDir directory;
+            auto config = configuration(fixture, driver, directory);
+            config.threadUrl = fixture.topic("source-alias");
+            config.useForumTable = true;
+            config.targets = {{fixture.root("target-alias"), true}};
+            interruptedPair(fixture, driver, directory, config, true, false, true);
+            config.resumeRun = true;
+            const QString report = execute(config, directory);
+            require(fixture.source.attempts == 1 && fixture.target.attempts == 1
+                && report.contains("Успешно пройдено форумов: 1"), "Verified forum redirects blocked recovery");
+            std::cout << "Recovery through verified forum aliases passed.\n";
+        }
+        {
+            Fixtures fixture;
+            WebDriverClient browser(driver); browser.start();
+            browser.navigate(fixture.root("source") + "/login.php?action=in");
+            browser.navigate(fixture.topic("source"));
+            bool failed = false;
+            try { ForumPage(browser).publish("Public text", {}, {}, 350, [](const QJsonObject &) { throw std::runtime_error("disk full"); }); }
+            catch (const std::exception &) { failed = true; }
+            require(failed && fixture.source.attempts == 0, "Failed checkpoint still clicked submit");
+            std::cout << "Checkpoint failure before click passed.\n";
+        }
+        {
+            Fixtures fixture;
+            fixture.target.lastPageLink = fixture.root("source") + ".evil.invalid";
+            const QString report = run(fixture, driver);
+            require(fixture.target.posts.size() == 1, "Similar host caused a false duplicate skip");
+            std::cout << "Exact forum matching passed.\n";
+        }
         {
             Fixtures fixture;
             fixture.source.delayed = fixture.target.delayed = true;
@@ -317,10 +481,15 @@ int main(int argc, char **argv)
         {
             Fixtures fixture;
             fixture.target.partnership = true;
-            const QString report = run(fixture, driver);
+            QTemporaryDir directory;
+            auto config = configuration(fixture, driver, directory);
+            const QString report = execute(config, directory);
             require(fixture.source.attempts == 0 && fixture.target.attempts == 0
                     && report.contains("Пропущен до следующего прохода"),
                     "A partnership topic was not temporarily skipped.");
+            fixture.target.partnership = false;
+            execute(config, directory);
+            require(fixture.target.posts.size() == 1, "Temporary skip was not retried in the next normal run");
             std::cout << "Temporary partnership skip passed.\n";
         }
         {

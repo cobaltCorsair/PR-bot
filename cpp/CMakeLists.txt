@@ -19,6 +19,8 @@ add_library(prbot_core STATIC
     src/config.h
     src/pr_bot.cpp
     src/pr_bot.h
+    src/run_state.cpp
+    src/run_state.h
     src/run_log.cpp
     src/run_log.h
     src/webdriver_client.cpp
@@ -31,6 +33,8 @@ add_library(prbot_core STATIC
 target_link_libraries(prbot_core PUBLIC Qt6::Core Qt6::Network)
 
 add_library(prbot_ui STATIC
+    src/forum_list_model.cpp
+    src/forum_list_model.h
     src/bot_window.cpp
     src/bot_window.h
     src/driver_updater.cpp
@@ -63,6 +67,9 @@ if(BUILD_TESTING)
         tests/browser_workflow_test.cpp
     )
     target_link_libraries(prbot_browser_tests PRIVATE prbot_ui)
+    add_executable(prbot_state_tests tests/run_state_test.cpp)
+    target_link_libraries(prbot_state_tests PRIVATE prbot_ui)
+    add_test(NAME prbot_state_tests COMMAND prbot_state_tests)
     add_executable(prbot_ui_tests tests/ui_layout_test.cpp)
     target_link_libraries(prbot_ui_tests PRIVATE prbot_ui)
     add_test(NAME prbot_ui_tests COMMAND prbot_ui_tests)
@@ -73,7 +80,7 @@ if(BUILD_TESTING)
     if(PRBOT_BROWSER_TESTS)
         add_test(NAME prbot_browser_tests COMMAND prbot_browser_tests "${PRBOT_TEST_CHROMEDRIVER}")
         set_tests_properties(prbot_browser_tests PROPERTIES
-            ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 120)
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 300)
     endif()
 endif()
 

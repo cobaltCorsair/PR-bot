@@ -9,4 +9,6 @@ QStringList fromBbCode(const QString &message);
 bool belongsToForum(const QString &reference, const QString &forumUrl);
 bool containsForum(const QStringList &references, const QString &forumUrl);
 QString forumFromTopic(const QString &topicUrl);
+QString normalizeForum(const QString &input);
+QString forumIdentity(const QString &input);
 }

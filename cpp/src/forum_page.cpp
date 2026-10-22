@@ -7,6 +7,7 @@
 #include <QRegularExpression>
 #include <QSet>
 #include <QUrl>
+#include <QUrlQuery>
 #include <utility>
 
 namespace {
@@ -78,6 +79,32 @@ QString plainMessage(QString text)
     text.remove(bbcode);
     return text.simplified().toCaseFolded();
 }
+
+QString matchingPost(const QJsonObject &snapshot, const QJsonObject &proof, bool requireNew)
+{
+    auto expected = messageReferences(proof.value("message").toString());
+    const QString text = plainMessage(proof.value("message").toString());
+    const QString backlink = referenceKey(proof.value("backlink").toString());
+    expected.remove(backlink);
+    if (expected.isEmpty() && text.isEmpty()) return {};
+    for (const auto &value : snapshot.value("posts").toArray()) {
+        const auto post = value.toObject();
+        const QString id = post.value("id").toString();
+        if ((requireNew && (id.mid(1).toLongLong() <= proof.value("largest_id").toVariant().toLongLong()
+             || proof.value("previous_ids").toArray().contains(id)))
+            || !post.value("authors").toArray().contains(proof.value("author").toString())) continue;
+        QSet<QString> refs;
+        for (const auto &ref : post.value("references").toArray()) refs.insert(referenceKey(ref.toString()));
+        bool matches = backlink.isEmpty() || refs.contains(backlink);
+        // Ссылки сохраняются при форматировании BBCode; для чистого текста
+        // проверяем видимое содержимое, а автора и ID проверяем всегда.
+        if (expected.isEmpty()) matches &= post.value("text").toString().simplified().toCaseFolded().contains(text);
+        for (const auto &ref : expected) matches &= refs.contains(ref);
+        if (matches && !post.value("permalink").toString().isEmpty()) return post.value("permalink").toString();
+    }
+    return {};
+}
+
 }
 
 PublicationError::PublicationError(Status status, const QString &message)
@@ -111,7 +138,8 @@ void ForumPage::checkReady()
 }
 
 QString ForumPage::publish(const QString &message, const QString &requiredBacklink,
-                           const std::function<void()> &beforeSubmit, int timeoutMs)
+                           const std::function<void()> &beforeSubmit, int timeoutMs,
+                           const std::function<void(const QJsonObject &)> &prepared)
 {
     const QJsonObject before = postingSnapshot();
     const QString author = before.value("userId").toString();
@@ -145,6 +173,13 @@ QString ForumPage::publish(const QString &message, const QString &requiredBackli
     )JS", {message});
     if (m_checkpoint)
         m_checkpoint();
+    QJsonArray ids;
+    for (const auto &id : previousIds) ids.append(id);
+    const QJsonObject proof{{"topic_url", before.value("pageUrl")}, {"author", author},
+        {"previous_ids", ids}, {"largest_id", QString::number(largestId)},
+        {"message", message}, {"backlink", requiredBacklink}};
+    // Ошибка записи на диск здесь прерывает отправку до клика.
+    if (prepared) prepared(proof);
     if (beforeSubmit)
         beforeSubmit();
 
@@ -164,26 +199,8 @@ QString ForumPage::publish(const QString &message, const QString &requiredBackli
             if (!errors.isEmpty())
                 throw PublicationError(PublicationError::Status::Rejected,
                                        "Форум отклонил отправку: " + errors);
-            for (const auto &value : current.value("posts").toArray()) {
-                const QJsonObject post = value.toObject();
-                const QString id = post.value("id").toString();
-                if (previousIds.contains(id) || id.mid(1).toLongLong() <= largestId
-                    || !post.value("authors").toArray().contains(author))
-                    continue;
-                QSet<QString> references;
-                for (const auto &ref : post.value("references").toArray())
-                    references.insert(referenceKey(ref.toString()));
-                if (!backlink.isEmpty() && !references.contains(backlink))
-                    continue;
-                bool contentMatches = expectedReferences.isEmpty()
-                    ? post.value("text").toString().simplified().toCaseFolded().contains(expectedText)
-                    : true;
-                for (const auto &reference : expectedReferences)
-                    contentMatches = contentMatches && references.contains(reference);
-                const QString permalink = post.value("permalink").toString();
-                if (contentMatches && !permalink.isEmpty())
-                    return permalink;
-            }
+            const QString match = matchingPost(current, proof, true);
+            if (!match.isEmpty()) return match;
             return false;
         }, "появление нового сообщения от текущего аккаунта", timeoutMs, m_checkpoint).toString();
     } catch (const PublicationError &) {
@@ -193,4 +210,43 @@ QString ForumPage::publish(const QString &message, const QString &requiredBackli
             QString("Результат отправки не подтверждён: %1. Автоматический повтор не выполняется.")
                 .arg(QString::fromUtf8(error.what())));
     }
+}
+
+QString ForumPage::findPublished(const QJsonObject &proof, bool requireNew)
+{
+    if (proof.value("author").toString().isEmpty() || proof.value("message").toString().isEmpty()
+        || proof.value("topic_url").toString().isEmpty())
+        throw std::runtime_error("Недостаточно сохранённых данных для сверки публикации.");
+    const QString topic = proof.value("topic_url").toString();
+    QStringList queue{topic};
+    QSet<QString> visited;
+    // Ограничиваем обход: отсутствие совпадения означает ручную сверку,
+    // а не разрешение повторить отправку. Ищем также на соседней/последней странице.
+    while (!queue.isEmpty() && visited.size() < 4) {
+        const QString url = queue.takeFirst();
+        if (visited.contains(url)) continue;
+        visited.insert(url);
+        if (m_checkpoint) m_checkpoint();
+        m_driver.navigate(url);
+        try {
+            const auto found = m_driver.waitFor([&]() -> QJsonValue {
+                const QString match = matchingPost(m_driver.execute(kSnapshot).toObject(), proof, requireNew);
+                return match.isEmpty() ? QJsonValue(false) : QJsonValue(match);
+            }, "сверка сохранённой публикации", 900, m_checkpoint).toString();
+            if (!found.isEmpty()) return found;
+        } catch (const WebDriverError &error) {
+            if (error.kind() != WebDriverError::Kind::Timeout) throw;
+        }
+        const auto links = m_driver.execute(R"JS(
+            return Array.from(document.querySelectorAll('.pagelink a[href]')).map(a => a.href).reverse();
+        )JS").toArray();
+        for (const auto &link : links) {
+            const QUrl candidate(link.toString()), original(topic);
+            if (candidate.host() == original.host() && candidate.port() == original.port()
+                && candidate.path() == original.path()
+                && QUrlQuery(candidate).queryItemValue("id") == QUrlQuery(original).queryItemValue("id"))
+                queue.append(candidate.toString());
+        }
+    }
+    return {};
 }
