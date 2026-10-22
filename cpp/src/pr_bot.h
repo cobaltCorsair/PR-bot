@@ -2,6 +2,7 @@
 
 #include "config.h"
 #include "run_log.h"
+#include "run_diagnostics.h"
 #include "run_state.h"
 
 #include <QDateTime>
@@ -67,6 +68,7 @@ signals:
     void progressChanged(int value);
     void logMessage(const QString &message);
     void finished();
+    void diagnosticsAvailable(const QString &archiveLogPath);
     void reportWritten(const QString &path);
     void runCompleted(bool hasErrors, bool cancelled);
     void activityChanged(const QString &forumUrl, const QString &stage);
@@ -95,6 +97,8 @@ private:
     void log(const QString &message, LogLevel level = LogLevel::Info);
     void writeReport(int elapsedMinutes);
     void checkStop() const;
+    void recordFailure(WebDriverClient *driver, const QString &message);
+    void diagnosticWarning();
     void navigate(WebDriverClient &driver, const QString &url);
     void waitForTopic(WebDriverClient &driver);
 
@@ -103,6 +107,8 @@ private:
     BotReport m_report;
     ForumRunResult m_currentResult;
     std::unique_ptr<RunLog> m_log;
+    std::unique_ptr<RunDiagnostics> m_diagnostics;
+    bool m_diagnosticWriteWarningSent = false;
     std::unique_ptr<RunState> m_state;
     ForumProgress m_progressState;
     bool m_sourcePrepared = false;

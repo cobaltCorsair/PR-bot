@@ -10,6 +10,8 @@
 #include "pr_bot.h"
 #include "driver_updater.h"
 #include "run_history_dialog.h"
+#include "run_diagnostics.h"
+#include "diagnostics_export.h"
 #include "window_theme.h"
 
 #include <QCheckBox>
@@ -419,6 +421,8 @@ BotWindow::BotWindow(QWidget *parent)
             .arg(QString::fromUtf8(error.what())), "ОШИБКА"));
     }
     refreshProgress();
+    m_diagnosticsLogPath = RunDiagnostics::latestLog(reportPath());
+    m_exportDiagnostics->setEnabled(!m_diagnosticsLogPath.isEmpty());
 }
 
 QWidget *BotWindow::buildCampaign()
@@ -934,6 +938,13 @@ QWidget *BotWindow::buildJournal()
     m_followLog = new CheckBox("Автопрокрутка", page);
     m_followLog->setChecked(true);
     journalFooter->addWidget(m_logCount);
+    m_exportDiagnostics = new QPushButton("Сохранить диагностику", page);
+    m_exportDiagnostics->setObjectName("saveDiagnosticsButton");
+    m_exportDiagnostics->setIcon(UiTheme::icon(UiTheme::Icon::Save));
+    m_exportDiagnostics->setToolTip("Сохранить журнал, версии, описание ошибок и снимки страниц в ZIP");
+    m_exportDiagnostics->setEnabled(false);
+    connect(m_exportDiagnostics, &QPushButton::clicked, this, &BotWindow::saveDiagnostics);
+    journalFooter->addWidget(m_exportDiagnostics);
     journalFooter->addStretch();
     journalFooter->addWidget(m_followLog);
     layout->addLayout(journalFooter);
@@ -1035,6 +1046,7 @@ void BotWindow::runBot(bool checkOnly, bool resume, const QStringList &only)
     m_runMode->setText(checkOnly ? "ПРОВЕРКА БЕЗ ПУБЛИКАЦИИ" : "ПУБЛИКАЦИЯ");
     m_successMetricLabel->setText(checkOnly ? "Готовы" : "Успешно");
 
+    m_diagnosticsLogPath.clear();
     m_logEntries.clear();
     m_visibleLogCount = 0;
     m_log->clear();
@@ -1073,6 +1085,9 @@ void BotWindow::runBot(bool checkOnly, bool resume, const QStringList &only)
     });
     connect(worker, &PrBot::forumUpdated, m_forumModel, &ForumListModel::updateResult);
     connect(worker, &PrBot::logMessage, this, &BotWindow::appendLog);
+    connect(worker, &PrBot::diagnosticsAvailable, this, [this](const QString &path) {
+        m_diagnosticsLogPath = path;
+    });
     connect(worker, &PrBot::reportWritten, this, [this](const QString &) {
         m_statistics->setEnabled(true);
     });
@@ -1154,9 +1169,15 @@ void BotWindow::openHistory()
     history->show();
 }
 
+void BotWindow::saveDiagnostics()
+{
+    if (!m_busy && !m_diagnosticsLogPath.isEmpty()) saveDiagnosticsArchive(this, m_diagnosticsLogPath);
+}
+
 void BotWindow::setBusy(bool busy)
 {
     m_busy = busy;
+    m_exportDiagnostics->setEnabled(!busy && RunDiagnostics::available(m_diagnosticsLogPath));
     m_campaignForm->setEnabled(!busy);
     m_forumTools->setEnabled(!busy);
     m_forumTable->setEditTriggers(busy ? QAbstractItemView::NoEditTriggers : QAbstractItemView::DoubleClicked | QAbstractItemView::EditKeyPressed);

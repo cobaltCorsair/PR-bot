@@ -12,9 +12,24 @@ if(MSVC)
     add_compile_options(/utf-8)
 endif()
 
+# Номер и ревизия самой программы попадут в диагностический архив.
+set(PRBOT_REVISION "unknown")
+find_package(Git QUIET)
+if(Git_FOUND)
+    execute_process(COMMAND "${GIT_EXECUTABLE}" rev-parse --short=12 HEAD
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        OUTPUT_VARIABLE PRBOT_GIT_REVISION OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+    if(PRBOT_GIT_REVISION MATCHES "^[0-9a-f]+$")
+        set(PRBOT_REVISION "${PRBOT_GIT_REVISION}")
+    endif()
+endif()
+configure_file(src/build_info.h.in generated/build_info.h @ONLY)
+
 find_package(Qt6 6.2 REQUIRED COMPONENTS Core Gui Widgets Network)
 
 add_library(prbot_core STATIC
+    src/run_diagnostics.cpp
+    src/run_diagnostics.h
     src/config.cpp
     src/config.h
     src/pr_bot.cpp
@@ -30,11 +45,14 @@ add_library(prbot_core STATIC
     src/forum_links.cpp
     src/forum_links.h
 )
+target_include_directories(prbot_core PUBLIC "${CMAKE_CURRENT_BINARY_DIR}/generated")
 target_link_libraries(prbot_core PUBLIC Qt6::Core Qt6::Network)
 
 add_library(prbot_ui STATIC
     src/forum_list_model.cpp
     src/forum_list_model.h
+    src/diagnostics_export.cpp
+    src/diagnostics_export.h
     src/bot_window.cpp
     src/bot_window.h
     src/driver_updater.cpp

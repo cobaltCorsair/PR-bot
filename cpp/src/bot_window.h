@@ -45,6 +45,7 @@ private slots:
     void startBot();
     void checkForums();
     void openHistory();
+    void saveDiagnostics();
     void saveSettings();
     void loadSettings();
     void openReport();
@@ -104,6 +105,8 @@ private:
     QTextEdit *m_log = nullptr;
     QPushButton *m_start = nullptr;
     QPushButton *m_checkForums = nullptr;
+    QPushButton *m_exportDiagnostics = nullptr;
+    QString m_diagnosticsLogPath;
     QPushButton *m_statistics = nullptr;
     QPushButton *m_stop = nullptr;
     QPushButton *m_load = nullptr;

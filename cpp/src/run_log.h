@@ -19,6 +19,7 @@ public:
     bool appendReport(const QString &report);
     QString errorString() const;
     QString archivePath() const { return m_archive.fileName(); }
+    static QString redactText(QString text, const QStringList &hiddenValues = {});
     static QString historyDirectory(const QString &reportPath);
 
 private:

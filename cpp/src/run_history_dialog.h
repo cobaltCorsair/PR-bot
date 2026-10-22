@@ -23,4 +23,5 @@ private:
     QTextEdit *m_preview = nullptr;
     QLabel *m_description = nullptr;
     QPushButton *m_openFile = nullptr;
+    QPushButton *m_exportDiagnostics = nullptr;
 };

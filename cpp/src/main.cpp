@@ -1,4 +1,5 @@
 #include "bot_window.h"
+#include "build_info.h"
 
 #include <QApplication>
 #include <QDir>
@@ -8,6 +9,7 @@ int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
     app.setApplicationName("PR-Bot");
+    app.setApplicationVersion(QString::fromLatin1(BuildInfo::version));
     app.setStyle("Fusion");
 
     // Переносимая Windows-версия хранит данные рядом с exe. Каталог, из

@@ -93,13 +93,24 @@ QString RunLog::errorString() const
 
 QString RunLog::redact(QString text) const
 {
-    for (const QString &hidden : m_hiddenValues)
-        text.replace(hidden, QStringLiteral("[скрыто]"));
+    return redactText(std::move(text), m_hiddenValues);
+}
+
+QString RunLog::redactText(QString text, const QStringList &hiddenValues)
+{
+    auto values = hiddenValues;
+    values.removeAll(QString());
+    std::sort(values.begin(), values.end(), [](const QString &a, const QString &b) { return a.size() > b.size(); });
+    for (const QString &hidden : values) text.replace(hidden, QStringLiteral("[скрыто]"));
     // В URL может оказаться встроенный логин/пароль; для диагностики достаточно
     // хоста и пути. Обычные ссылки на темы и сообщения остаются читаемыми.
     static const QRegularExpression credentials(QStringLiteral("(https?://)[^\\s/@]+@"),
                                                  QRegularExpression::CaseInsensitiveOption);
     text.replace(credentials, QStringLiteral("\\1[скрыто]@"));
+    static const QRegularExpression sensitiveQuery(
+        R"query(([?&](?:password|passwd|pwd|req_password|access_token|token|csrf_token|auth|sid|session|sessionid)=)[^&\s#"'<>]+)query",
+        QRegularExpression::CaseInsensitiveOption);
+    text.replace(sensitiveQuery, QStringLiteral("\\1[скрыто]"));
     return text;
 }
 

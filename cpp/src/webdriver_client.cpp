@@ -11,12 +11,11 @@
 #include <QTcpServer>
 #include <QThread>
 #include <QTimer>
+#include <QUuid>
 #include <stdexcept>
 #include <utility>
 
 namespace {
-constexpr int kRequestTimeoutMs = 20000;
-
 WebDriverError driverError(const QString &message)
 {
     return WebDriverError(WebDriverError::Kind::Startup, message);
@@ -125,9 +124,58 @@ void WebDriverClient::navigate(const QString &url)
     request("POST", sessionPath("/url"), {{"url", url}});
 }
 
-QString WebDriverClient::currentUrl()
+QString WebDriverClient::currentUrl(int timeoutMs)
 {
-    return request("GET", sessionPath("/url")).toString();
+    return request("GET", sessionPath("/url"), {}, timeoutMs).toString();
+}
+
+QByteArray WebDriverClient::takeScreenshot(const QStringList &hiddenValues)
+{
+    // Не трогаем значения форм и не вызываем события input/change/submit.
+    // Временный стиль скрывает поля; известные секреты маскируются в тексте.
+    const QString key = "__prbotDiagnostic_" + QUuid::createUuid().toString(QUuid::Id128);
+    QJsonArray secrets;
+    for (const auto &value : hiddenValues) if (!value.isEmpty()) secrets.append(value);
+    const QString restore = "if (typeof window[arguments[0]] === 'function') window[arguments[0]](); return true;";
+    const auto restorePage = [&] {
+        try { request("POST", sessionPath("/execute/sync"), {{"script", restore}, {"args", QJsonArray{key}}}, 2500); }
+        catch (...) { /* Закрытая/перешедшая страница уже не содержит временной маски. */ }
+    };
+    try {
+        request("POST", sessionPath("/execute/sync"), {{"script", QStringLiteral(R"JS(
+            const key = arguments[0], secrets = arguments[1];
+            const changed = [];
+            const style = document.createElement('style');
+            style.textContent = 'input, textarea, [contenteditable] { visibility: hidden !important; }';
+            window[key] = function () {
+                style.remove();
+                for (const [node, original, masked] of changed)
+                    if (node.isConnected && node.nodeValue === masked) node.nodeValue = original;
+                delete window[key];
+            };
+            (document.head || document.documentElement).appendChild(style);
+            const walker = document.createTreeWalker(document.body || document.documentElement, NodeFilter.SHOW_TEXT);
+            let node;
+            while ((node = walker.nextNode())) {
+                if (node.parentElement && node.parentElement.closest('script, style, noscript, input, textarea')) continue;
+                const original = node.nodeValue;
+                let masked = original;
+                for (const secret of secrets) masked = masked.split(secret).join('[скрыто]');
+                if (masked !== original) { changed.push([node, original, masked]); node.nodeValue = masked; }
+            }
+            return true;
+        )JS")}, {"args", QJsonArray{key, secrets}}}, 2500);
+        const QByteArray encoded = request("GET", sessionPath("/screenshot"), {}, 3500).toString().toLatin1();
+        const auto decoded = QByteArray::fromBase64Encoding(encoded, QByteArray::AbortOnBase64DecodingErrors);
+        if (!decoded || !decoded.decoded.startsWith("\x89PNG\r\n\x1a\n")
+            || decoded.decoded.size() > 16 * 1024 * 1024)
+            throw std::runtime_error("ChromeDriver вернул некорректный или слишком большой снимок страницы.");
+        restorePage();
+        return decoded.decoded;
+    } catch (...) {
+        restorePage();
+        throw;
+    }
 }
 
 QJsonValue WebDriverClient::execute(const QString &script, const QJsonArray &arguments)
@@ -188,7 +236,7 @@ QJsonValue WebDriverClient::waitFor(const std::function<QJsonValue()> &probe,
 }
 
 QJsonValue WebDriverClient::request(const QByteArray &method, const QString &path,
-                                    const QJsonObject &body)
+                                    const QJsonObject &body, int timeoutMs)
 {
     if (!m_network)
         throw driverError("Браузерная сессия ещё не запущена.");
@@ -219,7 +267,7 @@ QJsonValue WebDriverClient::request(const QByteArray &method, const QString &pat
     timer.setSingleShot(true);
     QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
     QObject::connect(&timer, &QTimer::timeout, &loop, &QEventLoop::quit);
-    timer.start(kRequestTimeoutMs);
+    timer.start(timeoutMs);
     loop.exec();
 
     if (timer.isActive())
@@ -229,7 +277,7 @@ QJsonValue WebDriverClient::request(const QByteArray &method, const QString &pat
         reply->deleteLater();
         throw WebDriverError(WebDriverError::Kind::Timeout,
             QString("Истекло время ожидания ответа ChromeDriver (%1, лимит %2 мс).")
-                .arg(command).arg(kRequestTimeoutMs), "timeout");
+                .arg(command).arg(timeoutMs), "timeout");
     }
 
     const QByteArray responseBytes = reply->readAll();

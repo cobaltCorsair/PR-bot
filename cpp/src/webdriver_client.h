@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QByteArray>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QJsonValue>
@@ -36,11 +37,13 @@ public:
     void start();
     void quit();
     void navigate(const QString &url);
-    QString currentUrl();
+    QString currentUrl(int timeoutMs = 20000);
+    QByteArray takeScreenshot(const QStringList &hiddenValues = {});
     QJsonValue execute(const QString &script, const QJsonArray &arguments = {});
     QStringList windowHandles();
     void switchToWindow(const QString &handle);
     void openTab();
+    bool hasSession() const { return !m_sessionId.isEmpty(); }
     QString browserVersion() const;
     QString driverVersion() const;
     // Проверяем состояние страницы до срока, без обязательной полной паузы.
@@ -51,7 +54,7 @@ public:
 
 private:
     QJsonValue request(const QByteArray &method, const QString &path,
-                       const QJsonObject &body = {});
+                       const QJsonObject &body = {}, int timeoutMs = 20000);
     QString sessionPath(const QString &suffix = {}) const;
     void waitForServer();
 

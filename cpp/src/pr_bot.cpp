@@ -158,13 +158,21 @@ void PrBot::run()
     m_currentUrl.clear();
     m_actualSourceForum.clear();
     m_currentResult = {};
+    m_progressState = {};
     m_stage = "Подготовка";
     m_logWriteWarningSent = false;
     m_log = std::make_unique<RunLog>(m_reportPath,
                                    QStringList{m_config.password, m_config.prCode}, m_config.checkOnly);
+    m_diagnosticWriteWarningSent = false;
+    m_diagnostics.reset();
+    std::unique_ptr<WebDriverClient> browser;
     emit statisticsChanged(0, 0, 0, 0);
     try {
         m_log->open();
+        m_diagnostics = std::make_unique<RunDiagnostics>(QStringList{m_config.password, m_config.prCode});
+        if (m_diagnostics->start(m_log->archivePath(), m_config.checkOnly))
+            emit diagnosticsAvailable(m_log->archivePath());
+        else diagnosticWarning();
         log(m_config.checkOnly ? "Начата проверка без публикации. Рекламные сообщения отправляться не будут."
                               : "Начат новый проход с публикацией. Журнал записывается по мере выполнения.");
         log("История запуска: " + m_log->archivePath());
@@ -202,8 +210,10 @@ void PrBot::run()
 
         setStage("ChromeDriver", QString("Запускаю драйвер: %1").arg(driverPath));
         checkStop();
-        WebDriverClient driver(driverPath);
+        browser = std::make_unique<WebDriverClient>(driverPath);
+        auto &driver = *browser;
         driver.start();
+        if (!m_diagnostics->setVersions(driver.browserVersion(), driver.driverVersion())) diagnosticWarning();
         log(QString("Браузерная сессия создана. Chrome: %1; ChromeDriver: %2.")
                 .arg(driver.browserVersion(), driver.driverVersion()));
         m_parentWindow = driver.windowHandles().value(0);
@@ -264,12 +274,14 @@ void PrBot::run()
                 log(m_currentResult.detail, LogLevel::Warning);
                 stop = true;
             } catch (const ThemeEnded &error) {
+                recordFailure(&driver, QString::fromUtf8(error.what()));
                 m_report.criticalError = QString::fromUtf8(error.what());
                 m_currentResult.outcome = "Ошибка";
                 m_currentResult.detail = m_report.criticalError;
                 log("Исходная рекламная тема закончилась. Останавливаю обход.", LogLevel::Error);
                 stop = true;
             } catch (const SkipForum &error) {
+                if (error.reason != SkipReason::AlreadyPosted) recordFailure(&driver, QString::fromUtf8(error.what()));
                 switch (error.reason) {
                 case SkipReason::NoElements: m_report.noElements.append(forumUrl); break;
                 case SkipReason::WrongTheme: m_report.wrongTheme.append(forumUrl); break;
@@ -282,6 +294,7 @@ void PrBot::run()
                 log(m_currentResult.detail, LogLevel::Warning);
             } catch (const WebDriverError &error) {
                 const QString message = QString::fromUtf8(error.what());
+                recordFailure(&driver, message);
                 if (error.kind() == WebDriverError::Kind::Timeout && m_currentResult.sourcePageUrl.isEmpty()) {
                     m_report.timeoutErrors.append(forumUrl);
                     m_currentResult.outcome = "Пропущен: превышено время ожидания";
@@ -298,6 +311,7 @@ void PrBot::run()
                 m_currentResult.detail = message;
             } catch (const std::exception &error) {
                 const QString message = QString::fromUtf8(error.what());
+                recordFailure(&driver, message);
                 if (!m_currentResult.sourcePageUrl.isEmpty() && m_currentResult.targetPageUrl.isEmpty())
                     log("Первая отправка уже выполнена. Проверьте обе темы перед повторным запуском: "
                         "результат второй отправки неизвестен.", LogLevel::Warning);
@@ -348,10 +362,14 @@ void PrBot::run()
         m_report.cancelled = true;
         log(QString::fromUtf8(error.what()), LogLevel::Warning);
     } catch (const std::exception &error) {
+        recordFailure(browser.get(), QString::fromUtf8(error.what()));
         m_report.criticalError = QString::fromUtf8(error.what());
         log(QString("Обход остановлен: %1").arg(m_report.criticalError), LogLevel::Error);
     }
 
+    // Захват ошибки выполняется до закрытия драйвера, в том числе при сбое
+    // подготовки исходной темы. Исключение диагностики не меняет ход отправки.
+    browser.reset();
     m_report.finishedAt = QDateTime::currentDateTime();
     m_report.elapsedSeconds = std::chrono::duration_cast<std::chrono::seconds>(
         std::chrono::steady_clock::now() - started).count();
@@ -369,6 +387,7 @@ void PrBot::run()
     } catch (const std::exception &error) {
         log(QString("Не удалось записать итоги: %1").arg(QString::fromUtf8(error.what())), LogLevel::Error);
     }
+    if (m_diagnostics && !m_diagnostics->finish(m_report.cancelled, m_report.criticalError)) diagnosticWarning();
     emit runCompleted(!m_report.criticalError.isEmpty(), m_report.cancelled);
     m_state.reset();
     emit finished();
@@ -428,13 +447,14 @@ QString PrBot::ancestorForumUrl() const
 void PrBot::prepareSource(WebDriverClient &driver)
 {
     try {
+        m_currentUrl = m_ancestorUrl;
         setStage("Исходный форум", QString("Открываю %1").arg(m_ancestorUrl));
         navigate(driver, m_ancestorUrl);
-        m_currentUrl = m_ancestorUrl;
         enterForum(driver);
     } catch (const BotCancelled &) {
         throw;
     } catch (const std::exception &error) {
+        recordFailure(&driver, QString::fromUtf8(error.what()));
         log(QString("Автоматический поиск исходной темы не удался: %1")
                 .arg(QString::fromUtf8(error.what())), LogLevel::Warning);
         setStage("Исходная тема", QString("Открываю тему из настроек: %1").arg(m_ancestorTopic));
@@ -895,6 +915,29 @@ void PrBot::visitForum(WebDriverClient &driver, const QString &forumUrl,
     m_progressState.phase = "complete";
     saveProgress();
     log(QString("Новое сообщение подтверждено: %1").arg(m_currentResult.targetPageUrl));
+}
+
+void PrBot::diagnosticWarning()
+{
+    if (m_diagnosticWriteWarningSent || !m_diagnostics) return;
+    m_diagnosticWriteWarningSent = true;
+    log("Диагностика недоступна: " + m_diagnostics->errorString(), LogLevel::Warning);
+}
+
+void PrBot::recordFailure(WebDriverClient *driver, const QString &message)
+{
+    if (!m_diagnostics) return;
+    // Снимок — наблюдение за ошибкой. Даже недоступный диск или закрытый
+    // браузер не должны менять решение о продолжении/остановке публикаций.
+    try {
+        if (!m_diagnostics->recordFailure(driver, m_currentUrl, m_stage, message,
+                m_config.checkOnly ? QString("check") : m_progressState.phase)) diagnosticWarning();
+        else if (m_diagnostics->screenshotError().isEmpty())
+            log("Диагностика ошибки сохранена: адрес, этап и снимок страницы.");
+        else log("Диагностика ошибки сохранена. Снимок недоступен: " + m_diagnostics->screenshotError(), LogLevel::Warning);
+    } catch (const std::exception &error) {
+        log("Не удалось собрать диагностику: " + QString::fromUtf8(error.what()), LogLevel::Warning);
+    }
 }
 
 void PrBot::checkStop() const

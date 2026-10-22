@@ -1,6 +1,8 @@
 #include "run_history_dialog.h"
 
 #include "run_log.h"
+#include "run_diagnostics.h"
+#include "diagnostics_export.h"
 #include "window_theme.h"
 
 #include <QDateTime>
@@ -53,10 +55,13 @@ RunHistoryDialog::RunHistoryDialog(const QString &reportPath, QWidget *parent)
     auto *folder = new QPushButton("Открыть папку", this);
     folder->setIcon(UiTheme::icon(UiTheme::Icon::Folder));
     m_openFile = new QPushButton("Открыть полный журнал", this);
+    m_exportDiagnostics = new QPushButton("Сохранить диагностику", this);
+    m_exportDiagnostics->setObjectName("historyDiagnosticsButton");
     auto *close = new QPushButton("Закрыть", this);
     actions->addWidget(refresh);
     actions->addWidget(folder);
     actions->addWidget(m_openFile);
+    actions->addWidget(m_exportDiagnostics);
     actions->addStretch();
     actions->addWidget(close);
     layout->addLayout(actions);
@@ -68,6 +73,7 @@ RunHistoryDialog::RunHistoryDialog(const QString &reportPath, QWidget *parent)
     connect(m_openFile, &QPushButton::clicked, this, [this] {
         if (!selectedPath().isEmpty()) QDesktopServices::openUrl(QUrl::fromLocalFile(selectedPath()));
     });
+    connect(m_exportDiagnostics, &QPushButton::clicked, this, [this] { saveDiagnosticsArchive(this, selectedPath()); });
     connect(close, &QPushButton::clicked, this, &QDialog::close);
     reload();
 }
@@ -108,6 +114,10 @@ void RunHistoryDialog::showSelected()
 {
     const QString path = selectedPath();
     m_openFile->setEnabled(!path.isEmpty());
+    const bool hasDiagnostics = RunDiagnostics::available(path);
+    m_exportDiagnostics->setEnabled(hasDiagnostics);
+    m_exportDiagnostics->setToolTip(hasDiagnostics ? "Снимки и версии относятся именно к выбранному запуску"
+        : "Для этого запуска диагностика не сохранялась; она доступна в новых запусках программы");
     QFile file(path);
     if (path.isEmpty() || !file.open(QIODevice::ReadOnly)) {
         m_preview->setPlainText(path.isEmpty() ? "Выберите запуск слева." : "Не удалось открыть журнал.");

@@ -1,0 +1,5 @@
+#pragma once
+namespace BuildInfo {
+inline constexpr const char *version = "@PROJECT_VERSION@";
+inline constexpr const char *revision = "@PRBOT_REVISION@";
+}
