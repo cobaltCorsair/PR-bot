@@ -39,6 +39,7 @@ struct BotReport {
     QStringList alreadyPosted;
     QStringList cancelledForums;
     bool cancelled = false;
+    bool checkOnly = false;
     QString criticalError;
     QDateTime startedAt;
     QDateTime finishedAt;
@@ -103,6 +104,7 @@ private:
     QString m_userId;
     QString m_ancestorUrl;
     QString m_ancestorTopic;
+    QString m_actualSourceForum;
     QString m_parentWindow; // Здесь размещаем рекламу посещаемого форума.
     QString m_forumWindow;  // Здесь публикуем наш шаблон со ссылкой на взаимность.
 };

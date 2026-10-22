@@ -5,6 +5,7 @@ out
 /cpp/build/
 /cpp/build-windows/
 /cpp/dist/
+/logs/
 /cpp/out/
 /cpp/.env/
 /cpp/.conda/

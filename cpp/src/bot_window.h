@@ -41,6 +41,8 @@ private slots:
     void browseChromeDriver();
     void refreshDriverControls();
     void startBot();
+    void checkForums();
+    void openHistory();
     void saveSettings();
     void loadSettings();
     void openReport();
@@ -52,6 +54,7 @@ private slots:
 
 private:
     void setStatus(const QString &text, const QString &state);
+    void runBot(bool checkOnly);
     BotConfig readForm() const;
     void populateForm(const BotConfig &config);
     QWidget *buildCampaign();
@@ -87,9 +90,12 @@ private:
     QLabel *m_currentStage = nullptr;
     QLabel *m_currentForum = nullptr;
     QLabel *m_logCount = nullptr;
+    QLabel *m_runMode = nullptr;
+    QLabel *m_successMetricLabel = nullptr;
     QLabel *m_metricValues[4] = {};
     QTextEdit *m_log = nullptr;
     QPushButton *m_start = nullptr;
+    QPushButton *m_checkForums = nullptr;
     QPushButton *m_statistics = nullptr;
     QPushButton *m_stop = nullptr;
     QPushButton *m_load = nullptr;
@@ -116,6 +122,7 @@ private:
     int m_visibleLogCount = 0;
     bool m_forumsReadable = false;
     bool m_busy = false;
+    bool m_runningCheck = false;
     QThread *m_workerThread = nullptr;
     std::shared_ptr<RunControl> m_control;
     bool m_closeWhenFinished = false;

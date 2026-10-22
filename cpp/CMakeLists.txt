@@ -25,6 +25,8 @@ add_library(prbot_core STATIC
     src/webdriver_client.h
     src/forum_page.cpp
     src/forum_page.h
+    src/forum_links.cpp
+    src/forum_links.h
 )
 target_link_libraries(prbot_core PUBLIC Qt6::Core Qt6::Network)
 
@@ -35,6 +37,8 @@ add_library(prbot_ui STATIC
     src/driver_updater.h
     src/window_theme.cpp
     src/window_theme.h
+    src/run_history_dialog.cpp
+    src/run_history_dialog.h
 )
 target_link_libraries(prbot_ui PUBLIC prbot_core Qt6::Widgets)
 

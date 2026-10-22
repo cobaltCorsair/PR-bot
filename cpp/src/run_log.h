@@ -9,15 +9,17 @@ enum class LogLevel { Info, Warning, Error };
 // повторного форматирования. Тело WebDriver-запросов сюда не передаётся.
 class RunLog final {
 public:
-    RunLog(QString path, QStringList hiddenValues);
+    RunLog(QString path, QStringList hiddenValues, bool checkOnly = false);
 
-    // Новый запуск заменяет предыдущий log.txt. Ошибка открытия останавливает
-    // подготовку до запуска браузера; сбой записи позднее не прерывает отправку.
+    // log.txt содержит текущий проход, logs/ — отдельный файл каждого запуска.
+    // Оба файла открываются до браузера; сбой записи не вызывает повтор отправки.
     void open();
     QString append(LogLevel level, const QString &stage, const QString &message,
                    const QString &forumUrl = {});
     bool appendReport(const QString &report);
     QString errorString() const;
+    QString archivePath() const { return m_archive.fileName(); }
+    static QString historyDirectory(const QString &reportPath);
 
 private:
     QString redact(QString text) const;
@@ -25,6 +27,8 @@ private:
     bool write(const QString &text);
 
     QFile m_file;
+    QFile m_archive;
+    bool m_checkOnly = false;
     QStringList m_hiddenValues;
     QString m_writeError;
 };

@@ -2,6 +2,7 @@
 
 #include "pr_bot.h"
 #include "driver_updater.h"
+#include "run_history_dialog.h"
 #include "window_theme.h"
 
 #include <QCheckBox>
@@ -303,12 +304,17 @@ BotWindow::BotWindow(QWidget *parent)
     m_stop->setObjectName("stopButton");
     m_stop->setIcon(UiTheme::icon(UiTheme::Icon::Stop, "#935738"));
     m_stop->hide();
+    m_checkForums = new QPushButton("Проверить", footer);
+    m_checkForums->setObjectName("checkForumsButton");
+    m_checkForums->setIcon(UiTheme::icon(UiTheme::Icon::Search));
+    m_checkForums->setToolTip("Войти в PR-аккаунты и проверить темы без отправки рекламных сообщений");
     m_start = new QPushButton("Запустить обход", footer);
     m_start->setObjectName("primaryButton");
     m_start->setIcon(UiTheme::icon(UiTheme::Icon::Play, "#ffffff"));
     m_start->setMinimumWidth(174);
     m_start->setToolTip("Начать публикации · ⌘Enter / Ctrl+Enter");
     actions->addWidget(m_stop);
+    actions->addWidget(m_checkForums);
     actions->addWidget(m_start);
     footerLayout->addLayout(actions);
     mainLayout->addWidget(footer);
@@ -318,6 +324,7 @@ BotWindow::BotWindow(QWidget *parent)
     connect(m_campaignNav, &QPushButton::clicked, this, [this] { showPage(0); });
     connect(m_journalNav, &QPushButton::clicked, this, [this] { showPage(1); });
     connect(m_start, &QPushButton::clicked, this, &BotWindow::startBot);
+    connect(m_checkForums, &QPushButton::clicked, this, &BotWindow::checkForums);
     connect(m_stop, &QPushButton::clicked, this, &BotWindow::stopBot);
     connect(m_save, &QPushButton::clicked, this, &BotWindow::saveSettings);
     connect(m_load, &QPushButton::clicked, this, &BotWindow::loadSettings);
@@ -620,6 +627,9 @@ QWidget *BotWindow::buildJournal()
     auto *layout = new QVBoxLayout(page);
     layout->setContentsMargins(32, 2, 32, 22);
     layout->setSpacing(17);
+    m_runMode = makeFieldLabel("Результаты последнего запуска", page);
+    m_runMode->setObjectName("runMode");
+    layout->addWidget(m_runMode);
     auto *metrics = new QFrame(page);
     metrics->setObjectName("metrics");
     auto *metricsRow = new QHBoxLayout(metrics);
@@ -635,6 +645,7 @@ QWidget *BotWindow::buildJournal()
         if (index == 1 || index == 3)
             m_metricValues[index]->setProperty("tone", index == 1 ? "success" : "error");
         auto *label = new QLabel(labels.at(index), metrics);
+        if (index == 1) m_successMetricLabel = label;
         label->setProperty("role", "metricLabel");
         column->addWidget(m_metricValues[index]);
         column->addWidget(label);
@@ -670,10 +681,16 @@ QWidget *BotWindow::buildJournal()
     m_statistics->setIcon(UiTheme::icon(UiTheme::Icon::Arrow));
     m_statistics->setToolTip("Открыть полный журнал и итоги прохода");
     m_statistics->setEnabled(QFileInfo::exists(reportPath()));
+    auto *history = new QPushButton("История", page);
+    history->setObjectName("openHistory");
+    history->setIcon(UiTheme::icon(UiTheme::Icon::Folder));
+    history->setToolTip("Открыть журналы прошлых проверок и публикаций");
+    connect(history, &QPushButton::clicked, this, &BotWindow::openHistory);
     toolbar->addWidget(m_logSearch, 1);
     toolbar->addWidget(m_logFilter);
     toolbar->addWidget(copy);
     toolbar->addWidget(m_statistics);
+    toolbar->addWidget(history);
     layout->addLayout(toolbar);
     m_log = new QTextEdit(page);
     m_log->setObjectName("log");
@@ -733,7 +750,8 @@ void BotWindow::stopBot()
     m_control->stopRequested.store(true);
     m_stop->setEnabled(false);
     m_stop->setText("Завершаю…");
-    setStatus("Останавливаю обход. Начатая пара публикаций будет завершена…", "running");
+    setStatus(m_runningCheck ? "Останавливаю проверку форумов…"
+                             : "Останавливаю обход. Начатая пара публикаций будет завершена…", "running");
 }
 
 void BotWindow::browseForums()
@@ -754,15 +772,29 @@ void BotWindow::browseChromeDriver()
 
 void BotWindow::startBot()
 {
+    runBot(false);
+}
+
+void BotWindow::checkForums()
+{
+    runBot(true);
+}
+
+void BotWindow::runBot(bool checkOnly)
+{
     if (m_workerThread || m_driverUpdater->isBusy())
         return;
     refreshForumFile();
     BotConfig config = readForm();
+    config.checkOnly = checkOnly;
     if (!launchIssue(config).isEmpty()) {
         updateLaunchStatus();
         return;
     }
     config.chromeDriverPath = resolvedDriverPath();
+    m_runningCheck = checkOnly;
+    m_runMode->setText(checkOnly ? "ПРОВЕРКА БЕЗ ПУБЛИКАЦИИ" : "ПУБЛИКАЦИЯ");
+    m_successMetricLabel->setText(checkOnly ? "Готовы" : "Успешно");
 
     m_logEntries.clear();
     m_visibleLogCount = 0;
@@ -779,7 +811,8 @@ void BotWindow::startBot()
     // Qt доставляет сигналы обратно в GUI через очередь между потоками.
     m_workerThread = new QThread(this);
     m_control = std::make_shared<RunControl>();
-    m_completionText = "Обработка завершена. Результат — в журнале и отчёте.";
+    m_completionText = checkOnly ? "Проверка завершена. Рекламные сообщения не отправлялись."
+                                : "Обработка завершена. Результат — в журнале и отчёте.";
     m_completionState = "done";
     auto *worker = new PrBot(config, reportPath(), m_control);
     worker->moveToThread(m_workerThread);
@@ -804,10 +837,16 @@ void BotWindow::startBot()
         m_statistics->setEnabled(true);
     });
     // Сначала завершается работа, затем поток и принадлежащий ему worker.
-    connect(worker, &PrBot::runCompleted, this, [this](bool hasErrors, bool cancelled) {
-        m_completionText = hasErrors ? "Обход завершён с ошибкой. Подробности — в журнале."
-            : cancelled ? "Обход остановлен. Результат сохранён в отчёте."
-                        : "Обработка завершена. Результат — в журнале и отчёте.";
+    connect(worker, &PrBot::runCompleted, this, [this, checkOnly](bool hasErrors, bool cancelled) {
+        if (checkOnly) {
+            m_completionText = hasErrors ? "Проверка завершена с ошибкой. Рекламные сообщения не отправлялись."
+                : cancelled ? "Проверка остановлена. Рекламные сообщения не отправлялись."
+                            : "Проверка завершена. Рекламные сообщения не отправлялись.";
+        } else {
+            m_completionText = hasErrors ? "Обход завершён с ошибкой. Подробности — в журнале."
+                : cancelled ? "Обход остановлен. Результат сохранён в отчёте."
+                            : "Обработка завершена. Результат — в журнале и отчёте.";
+        }
         m_completionState = hasErrors || cancelled ? "attention" : "done";
     });
     // quit() потокобезопасен. DirectConnection не требует работающего GUI-loop
@@ -868,6 +907,12 @@ void BotWindow::openReport()
     QDesktopServices::openUrl(QUrl::fromLocalFile(path));
 }
 
+void BotWindow::openHistory()
+{
+    auto *history = new RunHistoryDialog(reportPath(), this);
+    history->show();
+}
+
 void BotWindow::setBusy(bool busy)
 {
     m_busy = busy;
@@ -875,13 +920,15 @@ void BotWindow::setBusy(bool busy)
     m_load->setEnabled(!busy);
     m_save->setEnabled(!busy);
     m_start->setVisible(!busy);
+    m_checkForums->setVisible(!busy);
     m_stop->setVisible(busy);
     m_stop->setEnabled(busy);
     m_stop->setText("Остановить");
     if (busy) {
         refreshDriverControls();
         m_start->setEnabled(false);
-        setStatus("Выполняется обход форумов", "running");
+        m_checkForums->setEnabled(false);
+        setStatus(m_runningCheck ? "Проверяю форумы без публикации" : "Выполняется обход форумов", "running");
     } else {
         updateLaunchStatus();
     }
@@ -902,7 +949,7 @@ QString BotWindow::launchIssue(const BotConfig &config) const
 {
     if (m_driverUpdater->isBusy())
         return "Дождитесь проверки или установки ChromeDriver";
-    if (config.prCode.trimmed().isEmpty())
+    if (!config.checkOnly && config.prCode.trimmed().isEmpty())
         return "Добавьте текст объявления";
     const QUrl topic(config.threadUrl);
     if (!topic.isValid() || topic.host().isEmpty()
@@ -959,10 +1006,16 @@ void BotWindow::updateLaunchStatus()
     refreshDriverControls();
     if (m_busy)
         return;
-    const QString issue = launchIssue(readForm());
-    m_start->setEnabled(issue.isEmpty());
-    setStatus(issue.isEmpty() ? "Всё готово к запуску" : issue,
-              m_driverUpdater->isBusy() ? "running" : issue.isEmpty() ? "ready" : "attention");
+    BotConfig config = readForm();
+    const QString publicationIssue = launchIssue(config);
+    config.checkOnly = true;
+    const QString checkIssue = launchIssue(config);
+    m_start->setEnabled(publicationIssue.isEmpty());
+    m_checkForums->setEnabled(checkIssue.isEmpty());
+    const QString status = publicationIssue.isEmpty() ? "Всё готово к запуску"
+        : checkIssue.isEmpty() ? "Можно проверить форумы; для публикации добавьте объявление"
+                               : checkIssue;
+    setStatus(status, m_driverUpdater->isBusy() ? "running" : checkIssue.isEmpty() ? "ready" : "attention");
     m_progressLabel->setText(m_forumCount > 0
         ? counted(m_forumCount, "форум", "форума", "форумов")
             + (m_checkLastPage->isChecked() ? " · проверка повторов включена" : " · проверка повторов выключена")

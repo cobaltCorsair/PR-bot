@@ -5,6 +5,7 @@
 #include <stdexcept>
 
 class WebDriverClient;
+class QJsonObject;
 
 class PublicationError final : public std::runtime_error {
 public:
@@ -20,9 +21,11 @@ private:
 class ForumPage final {
 public:
     ForumPage(WebDriverClient &driver, std::function<void()> checkpoint = {});
+    void checkReady(); // Только чтение: аккаунт, форма и кнопка отправки.
     QString publish(const QString &message, const QString &requiredBacklink = {},
                     const std::function<void()> &beforeSubmit = {}, int timeoutMs = 15000);
 private:
+    QJsonObject postingSnapshot();
     WebDriverClient &m_driver;
     std::function<void()> m_checkpoint;
 };

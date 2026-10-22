@@ -2,6 +2,7 @@
 
 #include "webdriver_client.h"
 #include "forum_page.h"
+#include "forum_links.h"
 
 #include <QFile>
 #include <QJsonArray>
@@ -81,6 +82,7 @@ QString BotReport::toText(int elapsedMinutes) const
             out << label << ' ' << items.join(", ") << "\n";
     };
 
+    out << "Режим: " << (checkOnly ? "ПРОВЕРКА БЕЗ ПУБЛИКАЦИИ" : "ПУБЛИКАЦИЯ") << "\n";
     if (startedAt.isValid())
         out << "Начало: " << startedAt.toString(Qt::ISODate) << "\n";
     if (finishedAt.isValid())
@@ -88,13 +90,16 @@ QString BotReport::toText(int elapsedMinutes) const
     out << "Форумов в списке: " << plannedForums << "\n";
     out << "Обработано форумов: " << forums.size() << "\n";
     out << "Не обработано: " << qMax(0, plannedForums - int(forums.size())) << "\n";
-    writeList("Успешно пройдены:", successful);
+    writeList(checkOnly ? "Готовы к публикации:" : "Успешно пройдены:", successful);
     writeList("Не найдена форма ответа/картинка/код рекламы:", noElements);
     writeList("Неподходящая тема/ссылка (форум пропущен до следующего прохода):", wrongTheme);
     writeList("Ошибка аккаунта:", accountErrors);
     writeList("Ошибка загрузки форума:", timeoutErrors);
     writeList("Реклама уже есть на последней странице темы:", alreadyPosted);
-    out << "Успешно пройдено форумов: " << successful.size() << "\n";
+    out << (checkOnly ? "Проверены и готовы к публикации: " : "Успешно пройдено форумов: ")
+        << successful.size() << "\n";
+    if (checkOnly)
+        out << "Рекламные сообщения в этом проходе не отправлялись.\n";
     out << "Было пропущено форумов: " << skippedCount() << "\n";
     out << "Завершились ошибкой: "
         << qMax(0, int(forums.size()) - int(successful.size()) - skippedCount()
@@ -136,17 +141,21 @@ void PrBot::run()
 {
     const auto started = std::chrono::steady_clock::now();
     m_report = {};
+    m_report.checkOnly = m_config.checkOnly;
     m_report.startedAt = QDateTime::currentDateTime();
     m_currentUrl.clear();
+    m_actualSourceForum.clear();
     m_currentResult = {};
     m_stage = "Подготовка";
     m_logWriteWarningSent = false;
     m_log = std::make_unique<RunLog>(m_reportPath,
-                                   QStringList{m_config.password, m_config.prCode});
+                                   QStringList{m_config.password, m_config.prCode}, m_config.checkOnly);
     emit statisticsChanged(0, 0, 0, 0);
     try {
         m_log->open();
-        log("Начат новый проход. Журнал записывается по мере выполнения.");
+        log(m_config.checkOnly ? "Начата проверка без публикации. Рекламные сообщения отправляться не будут."
+                              : "Начат новый проход с публикацией. Журнал записывается по мере выполнения.");
+        log("История запуска: " + m_log->archivePath());
         checkStop();
         emit progressChanged(0);
         const QStringList forums = readForums();
@@ -155,7 +164,7 @@ void PrBot::run()
                 .arg(forums.size()).arg(m_config.forumsFile));
         if (forums.isEmpty())
             throw std::runtime_error("Файл со списком форумов пуст.");
-        if (m_config.prCode.trimmed().isEmpty())
+        if (!m_config.checkOnly && m_config.prCode.trimmed().isEmpty())
             throw std::runtime_error("Не заполнен текст рекламы.");
         m_ancestorUrl = ancestorForumUrl();
         log(QString("Исходная тема из настроек: %1").arg(m_ancestorTopic));
@@ -193,6 +202,12 @@ void PrBot::run()
             waitForTopic(driver);
         }
 
+        if (!jsBool(driver, "return !!document.querySelector('#main-reply');"))
+            throw ThemeEnded();
+        ForumPage(driver, [this] { checkStop(); }).checkReady();
+        m_actualSourceForum = ForumLinks::forumFromTopic(driver.currentUrl());
+        log(QString("Исходная тема: %1; форма ответа доступна.").arg(driver.currentUrl()));
+
         setStage("Вкладки", "Открываю отдельную вкладку для целевых форумов.");
         driver.openTab();
         const QStringList handles = driver.windowHandles();
@@ -219,8 +234,10 @@ void PrBot::run()
                 enterForum(driver);
                 visitForum(driver, forumUrl, m_ancestorUrl);
                 m_report.successful.append(forumUrl);
-                m_currentResult.outcome = "Успешно";
-                m_currentResult.detail = "Появление обоих сообщений подтверждено; ссылки записаны ниже.";
+                m_currentResult.outcome = m_config.checkOnly ? "Готов к публикации" : "Успешно";
+                m_currentResult.detail = m_config.checkOnly
+                    ? "Вход, тема, форма и рекламный код проверены; рекламные сообщения не отправлялись."
+                    : "Появление обоих сообщений подтверждено; ссылки записаны ниже.";
             } catch (const BotCancelled &error) {
                 m_report.cancelled = true;
                 m_report.cancelledForums.append(forumUrl);
@@ -306,7 +323,9 @@ void PrBot::run()
     const int elapsedMinutes = int(std::chrono::duration_cast<std::chrono::minutes>(
         std::chrono::steady_clock::now() - started).count());
     m_currentUrl.clear();
-    setStage("Итоги", QString("Обработано %1/%2; успешно: %3; пропущено: %4; длительность: %5 с.")
+    setStage("Итоги", QString(m_config.checkOnly
+                ? "Проверено %1/%2; готовы: %3; пропущено: %4; длительность: %5 с. Сообщения не отправлялись."
+                : "Обработано %1/%2; успешно: %3; пропущено: %4; длительность: %5 с.")
                 .arg(m_report.forums.size()).arg(m_report.plannedForums)
                 .arg(m_report.successful.size()).arg(m_report.skippedCount()).arg(m_report.elapsedSeconds));
     try {
@@ -603,29 +622,37 @@ void PrBot::visitForum(WebDriverClient &driver, const QString &forumUrl,
             navigate(driver, pages.at(pages.size() - 2));
             waitForTopic(driver);
         }
-        const QStringList posts = jsStringList(driver,
-            "return Array.from(document.querySelectorAll('.post-content')).map(el => el.innerHTML);");
-        log(QString("Проверяю сообщений на странице: %1.").arg(posts.size()));
-        for (const QString &post : posts) {
-            if (post.contains(ancestorUrl))
-                throw SkipForum(SkipReason::AlreadyPosted,
-                                QString("Реклама уже размещена на последней странице %1").arg(forumUrl));
-        }
+        const QStringList references = jsStringList(driver, R"JS(
+            return Array.from(document.querySelectorAll('.post-content a[href], .post-content img[src]'))
+                .filter(element => !element.closest('.code-box'))
+                .map(element => element.href || element.src);
+        )JS");
+        log(QString("Проверяю адресов в сообщениях на странице: %1.").arg(references.size()));
+        if (ForumLinks::containsForum(references, ancestorUrl)
+            || ForumLinks::containsForum(references, m_actualSourceForum))
+            throw SkipForum(SkipReason::AlreadyPosted,
+                            QString("Реклама уже размещена на последней странице %1").arg(forumUrl));
         log("Ссылка на исходный форум среди проверенных сообщений не найдена.");
     } else {
         setStage("Проверка повторов", "Проверка отключена в настройках.");
     }
 
-    QUrl forum(forumUrl);
-    QString host = forum.host();
-    if (host.startsWith("www."))
-        host.remove(0, 4);
-    const QString domainPart = host.section('.', 0, 0);
-    if ((!topicPostHtml.contains(host) && !topicPostHtml.contains(domainPart))
-        || topicPostHtml.contains("&lt;/"))
+    const QString actualTarget = ForumLinks::forumFromTopic(driver.currentUrl());
+    const QStringList templateLinks = ForumLinks::fromBbCode(topicPostHtml);
+    if ((!ForumLinks::containsForum(templateLinks, forumUrl)
+         && !ForumLinks::containsForum(templateLinks, actualTarget)) || topicPostHtml.contains("&lt;/"))
         throw SkipForum(SkipReason::WrongTheme,
                         QString("Шаблон рекламы не содержит ссылку на %1.").arg(forumUrl));
-    log(QString("Шаблон прошёл проверку принадлежности форуму %1.").arg(host));
+    log(QString("В BBCode найдена ссылка на форум %1; полный домен и каталог совпадают.")
+            .arg(QUrl(forumUrl).host()));
+
+    // Единственная ветка с публикациями находится ниже этой границы. Проверка
+    // использует тот же вход и те же критерии, но не вызывает publish().
+    if (m_config.checkOnly) {
+        ForumPage(driver, [this] { checkStop(); }).checkReady();
+        setStage("Проверка завершена", "Форум готов к публикации. Рекламные сообщения не отправлялись.");
+        return;
+    }
 
     // Сначала переносим чужой шаблон в свою тему. Только затем отправляем
     // свой шаблон на целевой форум, добавив ссылку на созданную взаимность.

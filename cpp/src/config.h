@@ -13,6 +13,7 @@ struct BotConfig {
     QString login;
     QString password; // Только в памяти; не загружается из JSON и не сохраняется.
     bool checkLastPage = true;
+    bool checkOnly = false; // Режим одного запуска; в настройки не записывается.
 
     static BotConfig load(const QString &path);
     void save(const QString &path) const;

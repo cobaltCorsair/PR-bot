@@ -64,6 +64,11 @@ QString stylesheet()
         QPushButton#stopButton { color: #935738; background: #fbf6ee; border-color: #dfcdb9;
             padding: 12px 17px; }
         QPushButton#stopButton:hover { background: #f6eadd; }
+        QPushButton#checkForumsButton { padding: 12px 16px; }
+        QListWidget#historyRuns { background: #ffffff; color: #3d5948;
+            border: 1px solid #dce2d3; border-radius: 8px; outline: none; }
+        QListWidget#historyRuns::item { padding: 12px 10px; border-bottom: 1px solid #edf0e7; }
+        QListWidget#historyRuns::item:selected { background: #e1edda; color: #234f39; }
         QPushButton#advancedToggle { text-align: left; padding: 12px 2px;
             background: transparent; border: none; color: #5c7059; font-size: 12px; }
         QCheckBox { color: #405a43; spacing: 9px; font-weight: 500; background: transparent; }

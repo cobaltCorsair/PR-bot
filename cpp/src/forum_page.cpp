@@ -1,5 +1,6 @@
 #include "forum_page.h"
 #include "webdriver_client.h"
+#include "forum_links.h"
 
 #include <QJsonArray>
 #include <QJsonObject>
@@ -12,10 +13,15 @@ namespace {
 // Читаем DOM одной командой: профильные ссылки вне тела поста указывают автора,
 // а href/src внутри тела дают признаки BBCode даже у рекламы из одной картинки.
 const QString kSnapshot = QStringLiteral(R"JS(
+    const field = document.querySelector('#main-reply');
+    const button = field && field.form
+        ? field.form.querySelector('input.button.submit, button[type="submit"]') : null;
     return {
         pageUrl: location.href,
         userId: typeof UserID !== 'undefined' ? String(UserID) : '',
         guest: typeof GroupID !== 'undefined' && String(GroupID) === '3',
+        // Часть форумов включает кнопку только после заполнения текста.
+        replyReady: !!field && !field.disabled && !!button,
         errors: Array.from(document.querySelectorAll(
             '#post-errors, .errorlist, #pun-main .form-error, #pun-main .error'))
             .map(e => e.textContent.trim()).filter(Boolean).join('; '),
@@ -57,20 +63,10 @@ QString referenceKey(const QString &text)
 
 QSet<QString> messageReferences(const QString &message)
 {
-    const QRegularExpression expressions[] = {
-        QRegularExpression(R"ref(\[(?:img|url)(?:=[^\]]+)?\](https?://[^\[]+)\[/(?:img|url)\])ref",
-                           QRegularExpression::CaseInsensitiveOption),
-        QRegularExpression(R"ref(\[url=["']?(https?://[^\]"']+)["']?\])ref",
-                           QRegularExpression::CaseInsensitiveOption)
-    };
     QSet<QString> result;
-    for (const auto &expression : expressions) {
-        auto matches = expression.globalMatch(message);
-        while (matches.hasNext()) {
-            const QString key = referenceKey(matches.next().captured(1));
-            if (!key.isEmpty())
-                result.insert(key);
-        }
+    for (const auto &reference : ForumLinks::fromBbCode(message)) {
+        const QString key = referenceKey(reference);
+        if (!key.isEmpty()) result.insert(key);
     }
     return result;
 }
@@ -94,15 +90,31 @@ ForumPage::ForumPage(WebDriverClient &driver, std::function<void()> checkpoint)
 {
 }
 
-QString ForumPage::publish(const QString &message, const QString &requiredBacklink,
-                           const std::function<void()> &beforeSubmit, int timeoutMs)
+QJsonObject ForumPage::postingSnapshot()
 {
     if (m_checkpoint)
         m_checkpoint();
     const QJsonObject before = m_driver.execute(kSnapshot).toObject();
     const QString author = before.value("userId").toString();
-    if (author.isEmpty() || author == "0" || before.value("guest").toBool())
+    bool numericAuthor = false;
+    const qlonglong authorId = author.toLongLong(&numericAuthor);
+    if (!numericAuthor || authorId <= 0 || before.value("guest").toBool())
         throw std::runtime_error("Перед отправкой не подтверждён вход в аккаунт.");
+    if (!before.value("replyReady").toBool())
+        throw std::runtime_error("Не найдена доступная форма ответа с кнопкой отправки.");
+    return before;
+}
+
+void ForumPage::checkReady()
+{
+    postingSnapshot();
+}
+
+QString ForumPage::publish(const QString &message, const QString &requiredBacklink,
+                           const std::function<void()> &beforeSubmit, int timeoutMs)
+{
+    const QJsonObject before = postingSnapshot();
+    const QString author = before.value("userId").toString();
 
     QSet<QString> previousIds;
     qlonglong largestId = 0;
