@@ -312,6 +312,7 @@ BotWindow::BotWindow(QWidget *parent)
     m_status->setMinimumWidth(150);
     m_progressLabel = new QLabel("Настройте кампанию перед запуском", footer);
     m_progressLabel->setObjectName("progressLabel");
+    m_progressLabel->setWordWrap(true);
     statusText->addWidget(m_status);
     statusText->addWidget(m_progressLabel);
     actions->addLayout(statusText, 1);
