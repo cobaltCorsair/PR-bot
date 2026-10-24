@@ -94,6 +94,7 @@ private:
     bool openAccountTopic(WebDriverClient &driver, bool selectTopic = true, const QString &expectedAuthor = {});
     bool getPrMessages(WebDriverClient &driver);
     bool checkImageAndFormAnswer(WebDriverClient &driver);
+    QString suspiciousForumLinks(WebDriverClient &driver, const QStringList &localForums);
     void forcedLogin(WebDriverClient &driver);
     void forumLogout(WebDriverClient &driver);
     void setStage(const QString &stage, const QString &message);

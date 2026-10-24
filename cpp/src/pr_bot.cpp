@@ -487,6 +487,10 @@ void PrBot::prepareSource(WebDriverClient &driver)
     if (!jsBool(driver, "return !!document.querySelector('#main-reply');")) throw ThemeEnded();
     ForumPage(driver, [this] { checkStop(); }).checkReady();
     m_actualSourceForum = ForumLinks::forumFromTopic(driver.currentUrl());
+    const QString suspect = suspiciousForumLinks(driver, {m_ancestorUrl, m_actualSourceForum});
+    if (!suspect.isEmpty())
+        throw std::runtime_error(("Исходная тема не прошла проверку: " + suspect
+            + " Обход остановлен до публикаций.").toStdString());
     log(QString("Исходная тема: %1; форма ответа доступна.").arg(driver.currentUrl()));
     m_sourcePrepared = true;
 }
@@ -774,6 +778,26 @@ bool PrBot::checkImageAndFormAnswer(WebDriverClient &driver)
     return valid;
 }
 
+QString PrBot::suspiciousForumLinks(WebDriverClient &driver, const QStringList &localForums)
+{
+    setStage("Анализ ссылок в теме", "Проверяю, на сколько разных форумов ссылаются сообщения текущей страницы.");
+    const auto analysis = ForumPage(driver, [this] { checkStop(); }).analyseForumLinks(localForums);
+    log(QString("Анализ страницы %1: сообщений без блока шаблона — %2; сообщений с внешними ссылками — %3; разных площадок — %4. Минимум для вывода — %5 сообщения.")
+        .arg(driver.currentUrl()).arg(analysis.scannedPosts).arg(analysis.linkedPosts)
+        .arg(analysis.postsByForum.size()).arg(ForumLinkAnalysis::MinLinkedPosts));
+    int listed = 0;
+    for (auto it = analysis.postsByForum.cbegin(); it != analysis.postsByForum.cend(); ++it) {
+        if (listed++ == 20) {
+            log(QString("Ещё площадок в анализе: %1.").arg(analysis.postsByForum.size() - 20));
+            break;
+        }
+        log(QString("Площадка %1 встречается в %2 сообщениях.").arg(it.key()).arg(it.value()));
+    }
+    if (!analysis.singleForumOnly()) return {};
+    return QString("Возможная партнёрка: во всех %1 сообщениях с внешними ссылками найдена только одна площадка — %2.")
+        .arg(analysis.linkedPosts).arg(analysis.postsByForum.firstKey());
+}
+
 void PrBot::forcedLogin(WebDriverClient &driver)
 {
     // Аргументы передаются отдельно от JavaScript: кавычки в пароле не могут
@@ -858,6 +882,9 @@ void PrBot::visitForum(WebDriverClient &driver, const QString &forumUrl,
     }
 
     const QString actualTarget = ForumLinks::forumFromTopic(driver.currentUrl());
+    const QString suspect = suspiciousForumLinks(driver, {forumUrl, actualTarget});
+    if (!suspect.isEmpty())
+        throw SkipForum(SkipReason::WrongTheme, suspect + " Форум пропущен до следующего прохода.");
     const QStringList templateLinks = ForumLinks::fromBbCode(topicPostHtml);
     if ((!ForumLinks::containsForum(templateLinks, forumUrl)
          && !ForumLinks::containsForum(templateLinks, actualTarget)) || topicPostHtml.contains("&lt;/"))

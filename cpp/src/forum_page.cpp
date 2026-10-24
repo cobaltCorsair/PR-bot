@@ -62,6 +62,36 @@ QString referenceKey(const QString &text)
         .toString(QUrl::FullyEncoded);
 }
 
+QString linkedForumHome(const QString &reference)
+{
+    QUrl url(reference.trimmed());
+    if (!url.isValid() || url.host().isEmpty() || !url.userInfo().isEmpty()
+        || (url.scheme() != "http" && url.scheme() != "https")) return {};
+    // Ссылка вокруг картинки может вести прямо на файл фотохостинга.
+    // Такие файлы не должны создавать отдельный «форум» в статистике.
+    static const QRegularExpression asset(
+        R"(\.(?:avif|bmp|gif|ico|jpe?g|png|svg|webp|mp[34]|webm|ogg|wav|pdf|zip|rar|7z|css|js)$)",
+        QRegularExpression::CaseInsensitiveOption);
+    if (asset.match(url.path()).hasMatch()) return {};
+    url = QUrl(referenceKey(reference));
+    QString host = url.host().toLower();
+    if (host.startsWith("www.")) host.remove(0, 4);
+    if (host.endsWith('.')) host.chop(1);
+    url.setHost(host);
+    // У форумов в подкаталоге сохраняем путь, когда его можно определить
+    // по стандартной PHP-странице. Прочие ссылки группируем по полному хосту;
+    // разные поддомены RusFF остаются разными площадками.
+    static const QRegularExpression endpoint(
+        R"(/(?:viewtopic|viewforum|index|profile|search|post|misc|login|register)\.php$)",
+        QRegularExpression::CaseInsensitiveOption);
+    const QString path = url.path();
+    const auto match = endpoint.match(path);
+    url.setPath(match.hasMatch() ? path.left(match.capturedStart()) : QString());
+    url.setQuery(QString());
+    url.setFragment(QString());
+    return ForumLinks::normalizeForum(url.toString(QUrl::FullyEncoded));
+}
+
 QSet<QString> messageReferences(const QString &message)
 {
     QSet<QString> result;
@@ -135,6 +165,42 @@ QJsonObject ForumPage::postingSnapshot()
 void ForumPage::checkReady()
 {
     postingSnapshot();
+}
+
+ForumLinkAnalysis ForumPage::analyseForumLinks(const QStringList &localForums)
+{
+    if (m_checkpoint) m_checkpoint();
+    // Читаем только текущую страницу. Шаблон первого поста и взаимные ссылки
+    // на местный форум не должны превращать одну рекламируемую площадку в две.
+    const auto posts = m_driver.execute(R"JS(
+        return Array.from(document.querySelectorAll('.post[id]'))
+            .filter(post => /^p\d+$/.test(post.id))
+            .filter(post => !(post.classList.contains('topicpost') && post.querySelector('.code-box')))
+            .map(post => {
+                const body = post.querySelector('.post-content');
+                return body ? Array.from(body.querySelectorAll('a[href]'))
+                    .filter(link => !link.closest('.code-box, .quote-box, blockquote, .post-sig, .signature, .sig-content'))
+                    .map(link => link.href) : [];
+            });
+    )JS").toArray();
+    ForumLinkAnalysis result;
+    result.scannedPosts = int(posts.size());
+    for (const auto &post : posts) {
+        QSet<QString> forums;
+        for (const auto &value : post.toArray()) {
+            const QString reference = value.toString();
+            bool local = false;
+            for (const auto &forum : localForums)
+                local |= ForumLinks::belongsToForum(reference, forum);
+            if (local) continue;
+            const QString home = linkedForumHome(reference);
+            if (!home.isEmpty()) forums.insert(home);
+        }
+        if (forums.isEmpty()) continue;
+        ++result.linkedPosts;
+        for (const auto &forum : forums) ++result.postsByForum[forum];
+    }
+    return result;
 }
 
 QString ForumPage::publish(const QString &message, const QString &requiredBacklink,

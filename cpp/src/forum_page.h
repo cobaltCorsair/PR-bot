@@ -1,11 +1,26 @@
 #pragma once
 
 #include <QString>
+#include <QStringList>
+#include <QMap>
 #include <functional>
 #include <stdexcept>
 
 class WebDriverClient;
 class QJsonObject;
+
+// Один форум учитывается один раз в каждом сообщении, даже если в шаблоне
+// несколько ссылок на него. Одного-двух сообщений недостаточно для вывода.
+struct ForumLinkAnalysis {
+    static constexpr int MinLinkedPosts = 3;
+    int scannedPosts = 0;
+    int linkedPosts = 0;
+    QMap<QString, int> postsByForum;
+    bool singleForumOnly() const
+    {
+        return linkedPosts >= MinLinkedPosts && postsByForum.size() == 1;
+    }
+};
 
 class PublicationError final : public std::runtime_error {
 public:
@@ -22,6 +37,7 @@ class ForumPage final {
 public:
     ForumPage(WebDriverClient &driver, std::function<void()> checkpoint = {});
     void checkReady(); // Только чтение: аккаунт, форма и кнопка отправки.
+    ForumLinkAnalysis analyseForumLinks(const QStringList &localForums);
     QString publish(const QString &message, const QString &requiredBacklink = {},
                     const std::function<void()> &beforeSubmit = {}, int timeoutMs = 15000,
                     const std::function<void(const QJsonObject &)> &prepared = {});
