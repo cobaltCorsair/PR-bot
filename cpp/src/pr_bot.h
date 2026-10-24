@@ -39,6 +39,7 @@ struct BotReport {
     QStringList accountErrors;
     QStringList timeoutErrors;
     QStringList alreadyPosted;
+    QStringList ownForums;
     QStringList cancelledForums;
     bool cancelled = false;
     bool checkOnly = false;
@@ -84,6 +85,9 @@ private:
     QStringList readForums() const;
     QString normalizeUrl(const QString &input) const;
     QString ancestorForumUrl() const;
+    void rememberSourceForum(const QString &forum);
+    void rejectOwnTarget(const QString &url) const;
+    void checkTargetDestination(WebDriverClient &driver, bool returnToSource = false);
     void enterForum(WebDriverClient &driver);
     void visitForum(WebDriverClient &driver, const QString &forumUrl,
                     const QString &ancestorUrl);
@@ -126,6 +130,7 @@ private:
     QString m_ancestorUrl;
     QString m_ancestorTopic;
     QString m_actualSourceForum;
+    QStringList m_sourceForums; // Настроенный адрес и адреса, подтверждённые на исходной вкладке.
     QString m_parentWindow; // Здесь размещаем рекламу посещаемого форума.
     QString m_forumWindow;  // Здесь публикуем наш шаблон со ссылкой на взаимность.
 };

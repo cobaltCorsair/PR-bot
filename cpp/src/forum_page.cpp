@@ -19,6 +19,8 @@ const QString kSnapshot = QStringLiteral(R"JS(
         ? field.form.querySelector('input.button.submit, button[type="submit"]') : null;
     return {
         pageUrl: location.href,
+        formAction: button && button.hasAttribute('formaction') ? button.formAction
+            : field && field.form ? field.form.action : '',
         userId: typeof UserID !== 'undefined' ? String(UserID) : '',
         guest: typeof GroupID !== 'undefined' && String(GroupID) === '3',
         // Часть форумов включает кнопку только после заполнения текста.
@@ -242,6 +244,7 @@ QString ForumPage::publish(const QString &message, const QString &requiredBackli
     QJsonArray ids;
     for (const auto &id : previousIds) ids.append(id);
     const QJsonObject proof{{"topic_url", before.value("pageUrl")}, {"author", author},
+        {"form_action", before.value("formAction")},
         {"previous_ids", ids}, {"largest_id", QString::number(largestId)},
         {"message", message}, {"backlink", requiredBacklink}};
     // Ошибка записи на диск здесь прерывает отправку до клика.
@@ -252,13 +255,26 @@ QString ForumPage::publish(const QString &message, const QString &requiredBackli
     // После клика ни тайм-аут, ни потеря связи не доказывают, что сервер ничего
     // не записал. Возвращаем неопределённый результат и никогда не кликаем снова.
     try {
-        m_driver.execute(R"JS(
+        const auto clicked = m_driver.execute(R"JS(
             const field = document.querySelector('#main-reply');
             const button = field && field.form
                 ? field.form.querySelector('input.button.submit, button[type="submit"]') : null;
             if (!button) throw new Error('Не найдена кнопка отправки в форме ответа');
+            // Проверка адреса и клик выполняются одной командой. Если страница
+            // или форма изменились после проверки в PrBot, отправки не будет.
+            const action = button.hasAttribute('formaction') ? button.formAction : field.form.action;
+            if (location.href !== arguments[0] || action !== arguments[1]) return false;
             button.click();
-        )JS");
+            return true;
+        )JS", {before.value("pageUrl"), before.value("formAction")});
+        // Только явное false доказывает, что проверка остановила команду до
+        // клика. Потерянный/неожиданный ответ сохраняет неопределённый результат.
+        if (!clicked.isBool())
+            throw PublicationError(PublicationError::Status::Unknown,
+                "Не получено подтверждение выполнения команды отправки. Автоматический повтор заблокирован.");
+        if (!clicked.toBool())
+            throw PublicationError(PublicationError::Status::Rejected,
+                "Адрес страницы или формы изменился перед кликом. Отправка не начиналась; обход остановлен.");
         return m_driver.waitFor([&]() -> QJsonValue {
             const QJsonObject current = m_driver.execute(kSnapshot).toObject();
             const QString errors = current.value("errors").toString();

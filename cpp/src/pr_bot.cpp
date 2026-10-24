@@ -24,7 +24,7 @@
 namespace {
 // Пропуск действует только в текущем проходе: новый пост PR-аккаунта может
 // снова привести в рекламную тему. Исходная закрытая тема останавливает обход.
-enum class SkipReason { NoElements, WrongTheme, Account, Timeout, AlreadyPosted };
+enum class SkipReason { NoElements, WrongTheme, Account, Timeout, AlreadyPosted, OwnForum };
 
 class SkipForum final : public std::runtime_error {
 public:
@@ -79,12 +79,20 @@ QString landingForum(WebDriverClient &driver)
     return ForumLinks::normalizeForum(page.toString());
 }
 
+QJsonObject persistedProof(QJsonObject proof)
+{
+    // Полный action нужен только перед кликом: в его query могут быть
+    // служебные токены формы, которые не следует сохранять в progress.json.
+    proof.remove("form_action");
+    return proof;
+}
+
 }
 
 int BotReport::skippedCount() const
 {
     return noElements.size() + wrongTheme.size() + accountErrors.size()
-        + timeoutErrors.size() + alreadyPosted.size();
+        + timeoutErrors.size() + alreadyPosted.size() + ownForums.size();
 }
 
 QString BotReport::toText(int elapsedMinutes) const
@@ -116,6 +124,7 @@ QString BotReport::toText(int elapsedMinutes) const
     writeList("Ошибка аккаунта:", accountErrors);
     writeList("Ошибка загрузки форума:", timeoutErrors);
     writeList("Реклама уже есть на последней странице темы:", alreadyPosted);
+    writeList("Собственный форум — пропущен:", ownForums);
     out << (checkOnly ? "Проверены и готовы к публикации: " : "Успешно пройдено форумов: ")
         << successful.size() << "\n";
     if (checkOnly)
@@ -168,6 +177,7 @@ void PrBot::run()
     m_report.startedAt = QDateTime::currentDateTime();
     m_currentUrl.clear();
     m_actualSourceForum.clear();
+    m_sourceForums.clear();
     m_currentResult = {};
     m_progressState = {};
     m_stage = "Подготовка";
@@ -208,6 +218,8 @@ void PrBot::run()
         if (!m_config.checkOnly && m_config.prCode.trimmed().isEmpty())
             throw std::runtime_error("Не заполнен текст рекламы.");
         m_ancestorUrl = ancestorForumUrl();
+        rememberSourceForum(m_ancestorUrl);
+        log("Защита от рекламы на собственном форуме включена всегда, независимо от проверки повторов.");
         log(QString("Исходная тема из настроек: %1").arg(m_ancestorTopic));
         log(QString("Проверка рекламы на последней странице: %1.")
                 .arg(m_config.checkLastPage ? "включена" : "выключена"));
@@ -271,13 +283,21 @@ void PrBot::run()
                 forumUrl = normalizeUrl(forumInput);
                 m_currentUrl = forumUrl;
                 m_currentResult.forumUrl = forumUrl;
-                driver.switchToWindow(m_forumWindow);
                 m_progressState = m_state ? m_state->entry(forumUrl) : ForumProgress{};
                 m_progressState.url = forumUrl;
+                if (m_progressState.isPartial()) {
+                    m_currentResult.topicUrl = m_progressState.topicUrl;
+                    m_currentResult.sourcePageUrl = m_progressState.sourceLink;
+                    m_currentResult.targetPageUrl = m_progressState.targetLink;
+                }
+                // Собственный адрес из списка отсекаем до открытия целевого форума.
+                rejectOwnTarget(forumUrl);
+                driver.switchToWindow(m_forumWindow);
                 if (!m_config.checkOnly && m_progressState.isPartial()) {
                     recoverForum(driver);
                 } else {
                     navigate(driver, forumUrl);
+                    rejectOwnTarget(driver.currentUrl());
                     enterForum(driver);
                     if (!m_sourcePrepared) {
                         const QString targetUser = m_userId;
@@ -309,17 +329,33 @@ void PrBot::run()
                 log("Исходная рекламная тема закончилась. Останавливаю обход.", LogLevel::Error);
                 stop = true;
             } catch (const SkipForum &error) {
-                if (error.reason != SkipReason::AlreadyPosted) recordFailure(&driver, QString::fromUtf8(error.what()));
-                switch (error.reason) {
-                case SkipReason::NoElements: m_report.noElements.append(forumUrl); break;
-                case SkipReason::WrongTheme: m_report.wrongTheme.append(forumUrl); break;
-                case SkipReason::Account: m_report.accountErrors.append(forumUrl); break;
-                case SkipReason::Timeout: m_report.timeoutErrors.append(forumUrl); break;
-                case SkipReason::AlreadyPosted: m_report.alreadyPosted.append(forumUrl); break;
+                if (error.reason == SkipReason::OwnForum && m_progressState.isPartial()) {
+                    // Старые частичные отправки нельзя превращать в обычный
+                    // пропуск: сохраняем доказательства и требуем ручную сверку.
+                    m_progressState.review = true;
+                    m_report.criticalError = QString::fromUtf8(error.what())
+                        + " Есть незавершённая пара. Отправка заблокирована; нужна ручная сверка обеих тем.";
+                    m_currentResult.outcome = "Ошибка";
+                    m_currentResult.detail = m_report.criticalError;
+                    recordFailure(&driver, m_report.criticalError);
+                    log(m_report.criticalError, LogLevel::Error);
+                    stop = true;
+                } else {
+                    if (error.reason != SkipReason::AlreadyPosted && error.reason != SkipReason::OwnForum)
+                        recordFailure(&driver, QString::fromUtf8(error.what()));
+                    switch (error.reason) {
+                    case SkipReason::NoElements: m_report.noElements.append(forumUrl); break;
+                    case SkipReason::WrongTheme: m_report.wrongTheme.append(forumUrl); break;
+                    case SkipReason::Account: m_report.accountErrors.append(forumUrl); break;
+                    case SkipReason::Timeout: m_report.timeoutErrors.append(forumUrl); break;
+                    case SkipReason::AlreadyPosted: m_report.alreadyPosted.append(forumUrl); break;
+                    case SkipReason::OwnForum: m_report.ownForums.append(forumUrl); break;
+                    }
+                    m_currentResult.outcome = error.reason == SkipReason::OwnForum
+                        ? "Пропущен: собственный форум" : "Пропущен до следующего прохода";
+                    m_currentResult.detail = QString::fromUtf8(error.what());
+                    log(m_currentResult.detail, LogLevel::Warning);
                 }
-                m_currentResult.outcome = "Пропущен до следующего прохода";
-                m_currentResult.detail = QString::fromUtf8(error.what());
-                log(m_currentResult.detail, LogLevel::Warning);
             } catch (const WebDriverError &error) {
                 const QString message = QString::fromUtf8(error.what());
                 recordFailure(&driver, message);
@@ -358,7 +394,7 @@ void PrBot::run()
                         : m_report.cancelled ? "pending" : "failed";
                 } else {
                     // Не теряем сторону и доказательства неоднозначной отправки.
-                    m_progressState.review = m_progressState.phase != "source_confirmed";
+                    m_progressState.review = m_progressState.review || m_progressState.phase != "source_confirmed";
                 }
                 m_progressState.detail = m_currentResult.detail;
                 saveProgress();
@@ -483,6 +519,48 @@ QString PrBot::ancestorForumUrl() const
     return withoutTrailingSlash(forum.toString(QUrl::FullyEncoded));
 }
 
+void PrBot::rememberSourceForum(const QString &forum)
+{
+    const QString normalized = ForumLinks::normalizeForum(forum);
+    const QString key = ForumLinks::forumIdentity(normalized);
+    if (key.isEmpty()) return;
+    for (const auto &known : m_sourceForums)
+        if (ForumLinks::forumIdentity(known) == key) return;
+    m_sourceForums.append(normalized);
+    log("Защита собственного форума: учитываю адрес " + normalized);
+}
+
+void PrBot::rejectOwnTarget(const QString &url) const
+{
+    for (const auto &source : m_sourceForums) {
+        // HTTP/HTTPS, www и стандартные порты нормализуются; каталог
+        // сравнивается по границе пути, поэтому /forum2 не равен /forum.
+        if (ForumLinks::belongsToForum(url, source))
+            throw SkipForum(SkipReason::OwnForum,
+                QString("Собственный форум — пропущен: целевой адрес %1 соответствует исходному форуму %2.")
+                    .arg(url, source));
+    }
+}
+
+void PrBot::checkTargetDestination(WebDriverClient &driver, bool returnToSource)
+{
+    rejectOwnTarget(m_progressState.url);
+    if (returnToSource) driver.switchToWindow(m_forumWindow);
+    const auto destination = driver.execute(R"JS(
+        const field = document.querySelector('#main-reply');
+        const button = field && field.form
+            ? field.form.querySelector('input.button.submit, button[type="submit"]') : null;
+        const action = button && button.hasAttribute('formaction') ? button.formAction
+            : field && field.form ? field.form.action : '';
+        return { page: location.href, action };
+    )JS").toObject();
+    // Возвращаем исходную вкладку до исключения: следующий форум должен
+    // видеть ту же исходную тему. Ошибка команды также прерывает эту отправку.
+    if (returnToSource) driver.switchToWindow(m_parentWindow);
+    rejectOwnTarget(destination.value("page").toString());
+    rejectOwnTarget(destination.value("action").toString());
+}
+
 void PrBot::prepareSource(WebDriverClient &driver)
 {
     try {
@@ -503,6 +581,7 @@ void PrBot::prepareSource(WebDriverClient &driver)
     if (!jsBool(driver, "return !!document.querySelector('#main-reply');")) throw ThemeEnded();
     ForumPage(driver, [this] { checkStop(); }).checkReady();
     m_actualSourceForum = ForumLinks::forumFromTopic(driver.currentUrl());
+    rememberSourceForum(m_actualSourceForum);
     const QString suspect = suspiciousForumLinks(driver, {m_ancestorUrl, m_actualSourceForum});
     if (!suspect.isEmpty())
         throw std::runtime_error(("Исходная тема не прошла проверку: " + suspect
@@ -555,6 +634,9 @@ void PrBot::recoverForum(WebDriverClient &driver)
     driver.switchToWindow(m_parentWindow);
     recoveryLogin(driver, m_ancestorUrl, sourceProof.value("author").toString());
     const QString actualSource = landingForum(driver);
+    rememberSourceForum(actualSource);
+    rejectOwnTarget(saved.url);
+    rejectOwnTarget(saved.topicUrl);
     const auto sourceBelongs = [&](const QString &url) {
         return ForumLinks::belongsToForum(url, m_ancestorUrl) || ForumLinks::belongsToForum(url, actualSource);
     };
@@ -570,13 +652,17 @@ void PrBot::recoverForum(WebDriverClient &driver)
         throw std::runtime_error("Первое сообщение не найдено при сверке. Повторная отправка заблокирована; проверьте обе темы вручную.");
     }
     saved.sourceLink = source;
-    saved.review = false;
     m_currentResult.sourcePageUrl = source;
+    rememberSourceForum(ForumLinks::forumFromTopic(source));
+    rejectOwnTarget(saved.url);
+    rejectOwnTarget(saved.topicUrl);
+    saved.review = false;
     if (saved.phase == "source_submitting") saved.phase = "source_confirmed";
     saveProgress();
     driver.switchToWindow(m_forumWindow);
     recoveryLogin(driver, target, saved.targetAuthor);
     const QString actualTarget = landingForum(driver);
+    rejectOwnTarget(actualTarget);
     const auto targetBelongs = [&](const QString &url) {
         return ForumLinks::belongsToForum(url, target) || ForumLinks::belongsToForum(url, actualTarget);
     };
@@ -588,8 +674,11 @@ void PrBot::recoverForum(WebDriverClient &driver)
         {"author", saved.targetAuthor}, {"message", finalMessage}, {"backlink", source}};
     if (!targetBelongs(targetProof.value("topic_url").toString()))
         throw std::runtime_error("Некорректная целевая тема для сверки.");
+    rejectOwnTarget(targetProof.value("topic_url").toString());
     const QString existing = page.findPublished(targetProof, wasSubmitted);
+    rejectOwnTarget(driver.currentUrl());
     if (!existing.isEmpty()) {
+        rejectOwnTarget(existing);
         saved.targetLink = existing;
         log("Обе публикации найдены. Повторные сообщения не отправлялись.");
     } else if (wasSubmitted) {
@@ -600,12 +689,16 @@ void PrBot::recoverForum(WebDriverClient &driver)
         // Первый ответ подтверждён, второй ещё не отправлялся или был явно отклонён.
         navigate(driver, saved.topicUrl);
         waitForTopic(driver);
+        checkTargetDestination(driver);
         m_finishingPublication = true;
         try {
-            saved.targetLink = page.publish(finalMessage, source, {}, 15000, [this](const QJsonObject &proof) {
+            saved.targetLink = page.publish(finalMessage, source, {}, 15000, [this, &driver](const QJsonObject &proof) {
+                rejectOwnTarget(proof.value("topic_url").toString());
+                rejectOwnTarget(proof.value("form_action").toString());
+                checkTargetDestination(driver);
                 if (proof.value("author").toString() != m_progressState.targetAuthor)
                     throw std::runtime_error("Перед отправкой изменился целевой PR-аккаунт. Проход остановлен.");
-                m_progressState.targetProof = proof;
+                m_progressState.targetProof = persistedProof(proof);
                 m_progressState.phase = "target_submitting";
                 m_progressState.detail = "Вторая отправка подготовлена; ожидается подтверждение ответа со ссылкой на взаимность.";
                 saveProgress();
@@ -852,6 +945,7 @@ void PrBot::visitForum(WebDriverClient &driver, const QString &forumUrl,
 {
     QScopedValueRollback<bool> publicationGuard(m_finishingPublication, false);
     checkStop();
+    checkTargetDestination(driver);
     setStage("Рекламный код", "Читаю шаблон из первого сообщения темы.");
     const QJsonArray sources = driver.execute(
         "return Array.from(document.querySelectorAll('.topicpost .code-box pre'))"
@@ -881,6 +975,7 @@ void PrBot::visitForum(WebDriverClient &driver, const QString &forumUrl,
             log(QString("Перехожу на последнюю страницу: %1").arg(pages.at(pages.size() - 2)));
             navigate(driver, pages.at(pages.size() - 2));
             waitForTopic(driver);
+            checkTargetDestination(driver);
         }
         const QStringList references = jsStringList(driver, R"JS(
             return Array.from(document.querySelectorAll('.post-content a[href], .post-content img[src]'))
@@ -935,8 +1030,12 @@ void PrBot::visitForum(WebDriverClient &driver, const QString &forumUrl,
             // Принудительное прерывание между отправками оставило бы взаимность без ответа.
             m_finishingPublication = true;
             log("Отправляю сообщение и ожидаю подтверждения его появления.");
-        }, 15000, [this](const QJsonObject &proof) {
-            m_progressState.sourceProof = proof;
+        }, 15000, [this, &driver](const QJsonObject &proof) {
+            rememberSourceForum(ForumLinks::forumFromTopic(proof.value("topic_url").toString()));
+            // До первой отправки перепроверяем другую вкладку: редирект на
+            // собственный форум должен остановить ещё всю пару публикаций.
+            checkTargetDestination(driver, true);
+            m_progressState.sourceProof = persistedProof(proof);
             m_progressState.phase = "source_submitting";
             m_progressState.detail = "Первая отправка подготовлена; ожидается подтверждение нового сообщения.";
             saveProgress();
@@ -949,6 +1048,7 @@ void PrBot::visitForum(WebDriverClient &driver, const QString &forumUrl,
         throw;
     }
     m_progressState.sourceLink = postLink;
+    rememberSourceForum(ForumLinks::forumFromTopic(postLink));
     m_progressState.phase = "source_confirmed";
     m_progressState.detail = "Взаимная реклама подтверждена; осталось разместить наш ответ.";
     saveProgress();
@@ -961,10 +1061,13 @@ void PrBot::visitForum(WebDriverClient &driver, const QString &forumUrl,
     try {
         m_currentResult.targetPageUrl = page.publish(finalMessage, postLink, [this] {
             log("Отправляю ответную рекламу и проверяю новое сообщение вместе со ссылкой на взаимность.");
-        }, 15000, [this](const QJsonObject &proof) {
+        }, 15000, [this, &driver](const QJsonObject &proof) {
+            rejectOwnTarget(proof.value("topic_url").toString());
+            rejectOwnTarget(proof.value("form_action").toString());
+            checkTargetDestination(driver);
             if (proof.value("author").toString() != m_progressState.targetAuthor)
                 throw std::runtime_error("Перед отправкой изменился целевой PR-аккаунт. Проход остановлен.");
-            m_progressState.targetProof = proof;
+            m_progressState.targetProof = persistedProof(proof);
             m_progressState.phase = "target_submitting";
             m_progressState.detail = "Вторая отправка подготовлена; ожидается подтверждение ответа со ссылкой на взаимность.";
             saveProgress();
