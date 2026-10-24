@@ -9,6 +9,7 @@
 #include <QSet>
 #include <QJsonObject>
 #include <QJsonValue>
+#include <QRandomGenerator>
 #include <QStandardPaths>
 #include <QStringConverter>
 #include <QScopedValueRollback>
@@ -16,6 +17,7 @@
 #include <QUrl>
 #include <QUrlQuery>
 #include <chrono>
+#include <algorithm>
 #include <stdexcept>
 #include <utility>
 
@@ -100,6 +102,7 @@ QString BotReport::toText(int elapsedMinutes) const
     if (finishedAt.isValid())
         out << "Завершение: " << finishedAt.toString(Qt::ISODate) << "\n";
     out << "Форумов в списке: " << plannedForums << "\n";
+    if (!forumOrder.isEmpty()) out << "Порядок обхода: " << forumOrder << "\n";
     if (!checkOnly) out << "Лимит реклам за запуск: "
         << (publicationLimit > 0 ? QString::number(publicationLimit) : QString("без ограничения")) << "\n";
     if (limitReached) out << (plannedForums > forums.size()
@@ -159,6 +162,8 @@ void PrBot::run()
     const auto started = std::chrono::steady_clock::now();
     m_report = {};
     m_report.checkOnly = m_config.checkOnly;
+    m_report.forumOrder = m_config.resumeRun && !m_config.checkOnly ? "сохранённая очередь"
+        : m_config.randomOrder ? "случайный" : "по списку";
     m_report.publicationLimit = m_config.checkOnly ? 0 : m_config.publicationLimit;
     m_report.startedAt = QDateTime::currentDateTime();
     m_currentUrl.clear();
@@ -191,6 +196,10 @@ void PrBot::run()
             ? QString("Лимит за запуск: %1 успешно завершённых пар. Пропуски и ошибки в лимит не входят.").arg(m_config.publicationLimit)
             : QString("Лимит рекламы за запуск не задан: обрабатываю весь включённый список."));
         QStringList forums = readForums();
+        // Перемешиваем без повторов только новый проход. Сохраняемый порядок
+        // не зависит от положения строк в таблице при следующем продолжении.
+        if (m_config.randomOrder && (!m_config.resumeRun || m_config.checkOnly))
+            std::shuffle(forums.begin(), forums.end(), *QRandomGenerator::global());
         m_report.plannedForums = int(forums.size());
         log(QString("Загружено форумов: %1. Файл: %2")
                 .arg(forums.size()).arg(m_config.forumsFile));
@@ -214,9 +223,16 @@ void PrBot::run()
         if (!m_config.checkOnly) {
             m_state = std::make_unique<RunState>(RunState::pathForReport(m_reportPath));
             m_state->begin(m_config, forums);
-            if (m_config.resumeRun && !forums.isEmpty()) forums = m_state->unfinished(forums);
+            // В новой очереди все выбранные строки сброшены до pending, кроме
+            // частичных пар. Их завершаем первыми; остальной порядок сохранён.
+            forums = m_state->unfinished(forums);
             log("Прогресс сохраняется в progress.json перед каждой отправкой.");
         }
+        log(QString("Порядок обхода: %1; форумов в очереди: %2.").arg(m_report.forumOrder).arg(forums.size()));
+        if (m_config.resumeRun && !m_config.checkOnly)
+            log("Очередь загружена из progress.json без перемешивания; настройка случайного порядка действует на новые проходы.");
+        if (m_state && m_state->entry(forums.value(0)).isPartial())
+            log("Сначала сверяю и завершаю сохранённые частичные пары, затем перехожу к остальной очереди.");
         m_report.plannedForums = int(forums.size());
         if (forums.isEmpty()) throw std::runtime_error("Все выбранные форумы сохранённого прохода уже завершены.");
 

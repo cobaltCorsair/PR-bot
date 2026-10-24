@@ -6,5 +6,6 @@
     "account_check": false,
     "login": null,
     "check_repeat_state": true,
-    "publication_limit": 0
+    "publication_limit": 0,
+    "random_forum_order": false
 }

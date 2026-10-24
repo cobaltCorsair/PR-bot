@@ -44,6 +44,7 @@ BotConfig BotConfig::fromJson(const QJsonObject &json)
         config.publicationLimit = int(number);
     }
     config.checkLastPage = json.value("check_repeat_state").toBool(true);
+    config.randomOrder = json.value("random_forum_order").toBool(false);
     config.useForumTable = json.contains("forums");
     for (const auto &value : json.value("forums").toArray()) {
         const auto item = value.toObject();
@@ -66,6 +67,7 @@ QJsonObject BotConfig::toJson() const
         {"login", useAccount ? QJsonValue(login) : QJsonValue(QJsonValue::Null)},
         {"check_repeat_state", checkLastPage},
         {"publication_limit", publicationLimit},
+        {"random_forum_order", randomOrder},
     };
     if (useForumTable) {
         QJsonArray entries;

@@ -86,6 +86,7 @@ private:
     QLineEdit *m_login = nullptr;
     QLineEdit *m_password = nullptr;
     QSpinBox *m_publicationLimit = nullptr;
+    QCheckBox *m_randomOrder = nullptr;
     bool m_limitReached = false;
     int m_limitCompleted = 0;
     int m_limitRemaining = 0;

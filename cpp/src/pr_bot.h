@@ -42,6 +42,7 @@ struct BotReport {
     QStringList cancelledForums;
     bool cancelled = false;
     bool checkOnly = false;
+    QString forumOrder;
     int publicationLimit = 0;
     bool limitReached = false;
     QString criticalError;

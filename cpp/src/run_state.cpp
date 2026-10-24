@@ -35,8 +35,8 @@ QString RunState::pathForReport(const QString &path) { return QFileInfo(path).ab
 
 QString RunState::fingerprint(const BotConfig &config)
 {
-    // Лимит относится к одному запуску: его можно менять при продолжении
-    // той же кампании, сохраняя уже подтверждённые пары и оставшуюся очередь.
+    // Лимит и выбор случайного порядка не меняют саму кампанию. При
+    // продолжении используются сохранённые пары и порядок entries.
     const QJsonObject identity{{"code", config.prCode}, {"topic", config.threadUrl.trimmed()},
         {"account", config.useAccount}, {"login", config.useAccount ? config.login : QString()}};
     return QString::fromLatin1(QCryptographicHash::hash(QJsonDocument(identity).toJson(QJsonDocument::Compact),
@@ -114,21 +114,27 @@ void RunState::begin(const BotConfig &config, const QStringList &forums)
     }
     m_fingerprint = fingerprint(config);
     if (!config.resumeRun) {
+        QList<ForumProgress> ordered;
+        QSet<QString> selected;
         for (const auto &url : forums) {
+            const QString key = ForumLinks::forumIdentity(url);
+            if (selected.contains(key)) continue;
+            selected.insert(key);
             const auto previous = entry(url);
-            if (previous.isPartial()) continue; // Сверяем такую пару при любом повторном запуске.
-            ForumProgress fresh;
-            fresh.url = url;
-            bool found = false;
-            for (auto &item : m_entries) {
-                if (ForumLinks::forumIdentity(item.url) == ForumLinks::forumIdentity(url)) {
-                    item = fresh;
-                    found = true;
-                    break;
-                }
+            if (previous.isPartial()) {
+                // Сверяем незавершённую пару при любом новом запуске.
+                ordered.append(previous);
+            } else {
+                ForumProgress fresh;
+                fresh.url = url;
+                ordered.append(fresh);
             }
-            if (!found) m_entries.append(fresh);
         }
+        // entries одновременно хранит прогресс и порядок очереди. Выбранные
+        // строки записываем в новом порядке, сохраняя остальные результаты.
+        for (const auto &item : m_entries)
+            if (!selected.contains(ForumLinks::forumIdentity(item.url))) ordered.append(item);
+        m_entries = std::move(ordered);
     }
     save();
 }

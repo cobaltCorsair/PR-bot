@@ -390,6 +390,7 @@ BotWindow::BotWindow(QWidget *parent)
         updateLaunchStatus();
     });
     connect(m_checkLastPage, &QCheckBox::toggled, this, &BotWindow::updateLaunchStatus);
+    connect(m_randomOrder, &QCheckBox::toggled, this, &BotWindow::updateLaunchStatus);
     connect(m_publicationLimit, &QSpinBox::valueChanged, this, &BotWindow::updateLaunchStatus);
 
     connect(m_forumModel, &QAbstractItemModel::dataChanged, this, [this](const QModelIndex &first) {
@@ -544,6 +545,11 @@ QWidget *BotWindow::buildCampaign()
     limitLabel->setBuddy(m_publicationLimit);
     targetsLayout->addWidget(m_publicationLimit);
     targetsLayout->addWidget(makeHint("Пропуски и ошибки не расходуют лимит. Остальные форумы можно пройти кнопкой «Продолжить».", targets));
+    m_randomOrder = new CheckBox("Случайный порядок", targets);
+    m_randomOrder->setObjectName("randomForumOrder");
+    m_randomOrder->setToolTip("Перемешивать форумы перед новым проходом. «Продолжить» использует сохранённую очередь.");
+    targetsLayout->addWidget(m_randomOrder);
+    targetsLayout->addWidget(makeHint("Перемешивать перед новым проходом. При продолжении порядок сохраняется.", targets));
     targetsLayout->addStretch();
     auto *targetsRule = new QFrame(targets);
     targetsRule->setObjectName("rule");
@@ -818,6 +824,7 @@ void BotWindow::resumeBot()
             auto config = state.campaign();
             config.chromeDriverPath = m_driverPath->text();
             config.publicationLimit = m_publicationLimit->value();
+            config.randomOrder = m_randomOrder->isChecked();
             populateForm(config);
             appendLog(applicationLog("Восстановлены параметры незавершённого прохода."));
         }
@@ -1320,6 +1327,7 @@ void BotWindow::updateLaunchStatus()
     m_progressLabel->setText(m_forumCount > 0
         ? counted(m_forumCount, "форум", "форума", "форумов")
             + (m_publicationLimit->value() > 0 ? QString(" · лимит реклам: %1").arg(m_publicationLimit->value()) : QString())
+            + (m_randomOrder->isChecked() ? " · случайный порядок" : " · по порядку списка")
             + (m_checkLastPage->isChecked() ? " · проверка повторов включена" : " · проверка повторов выключена")
         : "Заполните кампанию — кнопка запуска станет доступна");
 }
@@ -1398,6 +1406,7 @@ BotConfig BotWindow::readForm() const
     config.password = m_password->text();
     config.checkLastPage = m_checkLastPage->isChecked();
     config.publicationLimit = m_publicationLimit->value();
+    config.randomOrder = m_randomOrder->isChecked();
     config.useForumTable = true;
     config.targets = m_forumModel->targets();
     return config;
@@ -1416,6 +1425,7 @@ void BotWindow::populateForm(const BotConfig &config)
     m_password->setEchoMode(QLineEdit::Password);
     m_checkLastPage->setChecked(config.checkLastPage);
     m_publicationLimit->setValue(config.publicationLimit);
+    m_randomOrder->setChecked(config.randomOrder);
     m_credentials->setVisible(config.useAccount);
     m_advancedToggle->setChecked(config.useAccount || !QFileInfo(resolvedDriverPath()).isExecutable());
     if (config.useForumTable) m_forumModel->setTargets(config.targets);

@@ -22,6 +22,7 @@ struct BotConfig {
     QString password; // Только в памяти; не загружается из JSON и не сохраняется.
     static constexpr int MaxPublicationLimit = 1000000;
     int publicationLimit = 0; // Успешные пары за запуск; 0 — без ограничения.
+    bool randomOrder = false; // Перемешиваем только новый проход; продолжение использует сохранённую очередь.
     bool checkLastPage = true;
     bool checkOnly = false; // Режим одного запуска; в настройки не записывается.
     QList<ForumTarget> targets;
