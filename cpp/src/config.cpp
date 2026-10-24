@@ -6,6 +6,7 @@
 #include <QJsonArray>
 #include <QSaveFile>
 #include <stdexcept>
+#include <cmath>
 
 BotConfig BotConfig::load(const QString &path)
 {
@@ -35,6 +36,13 @@ BotConfig BotConfig::fromJson(const QJsonObject &json)
     config.chromeDriverPath = json.value("chromedriver_path").toString();
     config.useAccount = json.value("account_check").toBool(false);
     config.login = json.value("login").toString();
+    if (json.contains("publication_limit")) {
+        const auto value = json.value("publication_limit");
+        const double number = value.toDouble(-1);
+        if (!value.isDouble() || !std::isfinite(number) || number < 0 || number > BotConfig::MaxPublicationLimit || number != std::floor(number))
+            throw std::runtime_error("Некорректный лимит рекламы: укажите целое число от 0 до 1000000 (0 — без ограничения).");
+        config.publicationLimit = int(number);
+    }
     config.checkLastPage = json.value("check_repeat_state").toBool(true);
     config.useForumTable = json.contains("forums");
     for (const auto &value : json.value("forums").toArray()) {
@@ -47,6 +55,8 @@ BotConfig BotConfig::fromJson(const QJsonObject &json)
 
 QJsonObject BotConfig::toJson() const
 {
+    if (publicationLimit < 0 || publicationLimit > MaxPublicationLimit)
+        throw std::runtime_error("Лимит рекламы должен быть от 0 до 1000000.");
     QJsonObject json{
         {"pr_code", prCode},
         {"thread_link", threadUrl},
@@ -55,6 +65,7 @@ QJsonObject BotConfig::toJson() const
         {"account_check", useAccount},
         {"login", useAccount ? QJsonValue(login) : QJsonValue(QJsonValue::Null)},
         {"check_repeat_state", checkLastPage},
+        {"publication_limit", publicationLimit},
     };
     if (useForumTable) {
         QJsonArray entries;

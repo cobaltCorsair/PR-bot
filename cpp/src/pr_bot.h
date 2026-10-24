@@ -42,6 +42,8 @@ struct BotReport {
     QStringList cancelledForums;
     bool cancelled = false;
     bool checkOnly = false;
+    int publicationLimit = 0;
+    bool limitReached = false;
     QString criticalError;
     QDateTime startedAt;
     QDateTime finishedAt;
@@ -74,6 +76,7 @@ signals:
     void activityChanged(const QString &forumUrl, const QString &stage);
     void forumUpdated(const QString &url, const QString &status, const QString &detail,
                       const QString &topic, const QString &sourceLink, const QString &targetLink);
+    void publicationLimitReached(int completed, int remaining);
     void statisticsChanged(int processed, int successful, int skipped, int failed);
 
 private:

@@ -47,6 +47,7 @@
 #include <QShortcut>
 #include <QSignalBlocker>
 #include <QStackedWidget>
+#include <QSpinBox>
 #include <QStandardPaths>
 #include <QStyle>
 #include <QStylePainter>
@@ -388,6 +389,7 @@ BotWindow::BotWindow(QWidget *parent)
         updateLaunchStatus();
     });
     connect(m_checkLastPage, &QCheckBox::toggled, this, &BotWindow::updateLaunchStatus);
+    connect(m_publicationLimit, &QSpinBox::valueChanged, this, &BotWindow::updateLaunchStatus);
 
     connect(m_forumModel, &QAbstractItemModel::dataChanged, this, [this](const QModelIndex &first) {
         if (first.column() == 0) { refreshForumCount(); updateLaunchStatus(); }
@@ -530,6 +532,17 @@ QWidget *BotWindow::buildCampaign()
     targetsLayout->addWidget(m_forumFileName);
     m_forumsStatus = makeHint("Выберите список для обхода", targets);
     targetsLayout->addWidget(m_forumsStatus);
+    auto *limitLabel = makeFieldLabel("Лимит реклам за запуск", targets);
+    targetsLayout->addWidget(limitLabel);
+    m_publicationLimit = new QSpinBox(targets);
+    m_publicationLimit->setObjectName("publicationLimit");
+    m_publicationLimit->setAccessibleName("Количество успешных размещений за запуск");
+    m_publicationLimit->setRange(0, BotConfig::MaxPublicationLimit);
+    m_publicationLimit->setSpecialValueText("Без ограничения");
+    m_publicationLimit->setToolTip("Одна реклама — одна подтверждённая пара сообщений. 0 — весь список.");
+    limitLabel->setBuddy(m_publicationLimit);
+    targetsLayout->addWidget(m_publicationLimit);
+    targetsLayout->addWidget(makeHint("Пропуски и ошибки не расходуют лимит. Остальные форумы можно пройти кнопкой «Продолжить».", targets));
     targetsLayout->addStretch();
     auto *targetsRule = new QFrame(targets);
     targetsRule->setObjectName("rule");
@@ -803,6 +816,7 @@ void BotWindow::resumeBot()
         if (!state.matches(readForm())) {
             auto config = state.campaign();
             config.chromeDriverPath = m_driverPath->text();
+            config.publicationLimit = m_publicationLimit->value();
             populateForm(config);
             appendLog(applicationLog("Восстановлены параметры незавершённого прохода."));
         }
@@ -1028,6 +1042,8 @@ void BotWindow::runBot(bool checkOnly, bool resume, const QStringList &only)
 {
     if (m_workerThread || m_driverUpdater->isBusy())
         return;
+    // Фиксируем введённое число и при запуске горячей клавишей из самого поля.
+    m_publicationLimit->interpretText();
     BotConfig config = readForm();
     config.checkOnly = checkOnly;
     config.resumeRun = resume;
@@ -1043,7 +1059,10 @@ void BotWindow::runBot(bool checkOnly, bool resume, const QStringList &only)
         return;
     }
     m_runningCheck = checkOnly;
-    m_runMode->setText(checkOnly ? "ПРОВЕРКА БЕЗ ПУБЛИКАЦИИ" : "ПУБЛИКАЦИЯ");
+    m_limitReached = false;
+    m_limitCompleted = m_limitRemaining = 0;
+    m_runMode->setText(checkOnly ? "ПРОВЕРКА БЕЗ ПУБЛИКАЦИИ"
+        : config.publicationLimit > 0 ? QString("ПУБЛИКАЦИЯ · ЛИМИТ: %1").arg(config.publicationLimit) : "ПУБЛИКАЦИЯ");
     m_successMetricLabel->setText(checkOnly ? "Готовы" : "Успешно");
 
     m_diagnosticsLogPath.clear();
@@ -1068,9 +1087,11 @@ void BotWindow::runBot(bool checkOnly, bool resume, const QStringList &only)
     auto *worker = new PrBot(config, reportPath(), m_control);
     worker->moveToThread(m_workerThread);
     connect(m_workerThread, &QThread::started, worker, &PrBot::run);
-    connect(worker, &PrBot::progressChanged, this, [this](int value) {
+    connect(worker, &PrBot::progressChanged, this, [this, checkOnly, limit = config.publicationLimit](int value) {
         m_progress->setValue(value);
-        m_progressLabel->setText(QString("Обработано %1% списка").arg(value));
+        m_progressLabel->setText(!checkOnly && limit > 0
+            ? QString("Размещено %1 из %2 · обработано %3% списка").arg(m_metricValues[1]->text()).arg(limit).arg(value)
+            : QString("Обработано %1% списка").arg(value));
     });
     connect(worker, &PrBot::activityChanged, this, [this](const QString &forum, const QString &stage) {
         m_currentStage->setText(stage);
@@ -1088,6 +1109,11 @@ void BotWindow::runBot(bool checkOnly, bool resume, const QStringList &only)
     connect(worker, &PrBot::diagnosticsAvailable, this, [this](const QString &path) {
         m_diagnosticsLogPath = path;
     });
+    connect(worker, &PrBot::publicationLimitReached, this, [this](int completed, int remaining) {
+        m_limitReached = true;
+        m_limitCompleted = completed;
+        m_limitRemaining = remaining;
+    });
     connect(worker, &PrBot::reportWritten, this, [this](const QString &) {
         m_statistics->setEnabled(true);
     });
@@ -1100,7 +1126,8 @@ void BotWindow::runBot(bool checkOnly, bool resume, const QStringList &only)
         } else {
             m_completionText = hasErrors ? "Обход завершён с ошибкой. Подробности — в журнале."
                 : cancelled ? "Обход остановлен. Результат сохранён в отчёте."
-                            : "Обработка завершена. Результат — в журнале и отчёте.";
+                : m_limitReached ? QString("Размещено реклам: %1. Лимит за запуск достигнут.").arg(m_limitCompleted)
+                                 : "Обработка завершена. Результат — в журнале и отчёте.";
         }
         m_completionState = hasErrors || cancelled ? "attention" : "done";
     });
@@ -1116,8 +1143,10 @@ void BotWindow::runBot(bool checkOnly, bool resume, const QStringList &only)
         m_control.reset();
         refreshProgress(!m_runningCheck);
         setStatus(m_completionText, m_completionState);
-        m_progressLabel->setText(QString("Обработано %1% списка · полный журнал доступен в отчёте")
-                                    .arg(m_progress->value()));
+        m_progressLabel->setText(m_limitReached
+            ? m_limitRemaining > 0 ? QString("Осталось форумов: %1 · нажмите «Продолжить» для следующего прохода").arg(m_limitRemaining)
+                                   : "Весь список обработан · полный журнал доступен в отчёте"
+            : QString("Обработано %1% списка · полный журнал доступен в отчёте").arg(m_progress->value()));
         if (m_closeWhenFinished)
             QTimer::singleShot(0, this, &QWidget::close);
     });
@@ -1129,6 +1158,7 @@ void BotWindow::saveSettings()
     if (m_busy || m_driverUpdater->isBusy())
         return;
     try {
+        m_publicationLimit->interpretText();
         readForm().save(settingsPath());
         appendLog(applicationLog("Настройки сохранены. Пароль в файл не записывается."));
         updateLaunchStatus();
@@ -1288,6 +1318,7 @@ void BotWindow::updateLaunchStatus()
     setStatus(status, m_driverUpdater->isBusy() ? "running" : checkIssue.isEmpty() ? "ready" : "attention");
     m_progressLabel->setText(m_forumCount > 0
         ? counted(m_forumCount, "форум", "форума", "форумов")
+            + (m_publicationLimit->value() > 0 ? QString(" · лимит реклам: %1").arg(m_publicationLimit->value()) : QString())
             + (m_checkLastPage->isChecked() ? " · проверка повторов включена" : " · проверка повторов выключена")
         : "Заполните кампанию — кнопка запуска станет доступна");
 }
@@ -1365,6 +1396,7 @@ BotConfig BotWindow::readForm() const
     config.login = m_login->text();
     config.password = m_password->text();
     config.checkLastPage = m_checkLastPage->isChecked();
+    config.publicationLimit = m_publicationLimit->value();
     config.useForumTable = true;
     config.targets = m_forumModel->targets();
     return config;
@@ -1382,6 +1414,7 @@ void BotWindow::populateForm(const BotConfig &config)
     m_passwordVisibility->setChecked(false);
     m_password->setEchoMode(QLineEdit::Password);
     m_checkLastPage->setChecked(config.checkLastPage);
+    m_publicationLimit->setValue(config.publicationLimit);
     m_credentials->setVisible(config.useAccount);
     m_advancedToggle->setChecked(config.useAccount || !QFileInfo(resolvedDriverPath()).isExecutable());
     if (config.useForumTable) m_forumModel->setTargets(config.targets);

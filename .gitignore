@@ -16,3 +16,5 @@ out
 /progress.json.lock
 
 /diagnostics/
+
+/local-backups/

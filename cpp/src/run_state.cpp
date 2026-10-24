@@ -35,6 +35,8 @@ QString RunState::pathForReport(const QString &path) { return QFileInfo(path).ab
 
 QString RunState::fingerprint(const BotConfig &config)
 {
+    // Лимит относится к одному запуску: его можно менять при продолжении
+    // той же кампании, сохраняя уже подтверждённые пары и оставшуюся очередь.
     const QJsonObject identity{{"code", config.prCode}, {"topic", config.threadUrl.trimmed()},
         {"account", config.useAccount}, {"login", config.useAccount ? config.login : QString()}};
     return QString::fromLatin1(QCryptographicHash::hash(QJsonDocument(identity).toJson(QJsonDocument::Compact),

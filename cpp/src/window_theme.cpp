@@ -37,11 +37,12 @@ QString stylesheet()
         QLabel#formatBadge { background: #edf1e7; color: #6d7d65; border-radius: 5px;
             padding: 4px 7px; font-family: Menlo, monospace; font-size: 10px; }
         QFrame#rule { background: #e8ebdf; border: none; max-height: 1px; }
-        QLineEdit, QPlainTextEdit { background: #fbfcf8; color: #293c30;
+        QLineEdit, QPlainTextEdit, QSpinBox { background: #fbfcf8; color: #293c30;
             border: 1px solid #dce2d3; border-radius: 7px; padding: 9px 11px;
             selection-background-color: #b9d6b8; selection-color: #1b372a; }
-        QLineEdit:focus, QPlainTextEdit:focus { border: 1px solid #6c997e; background: #ffffff; }
-        QLineEdit:disabled { color: #8f9a8b; background: #f2f4ee; }
+        QLineEdit:focus, QPlainTextEdit:focus, QSpinBox:focus { border: 1px solid #6c997e; background: #ffffff; }
+        QLineEdit:disabled, QSpinBox:disabled { color: #8f9a8b; background: #f2f4ee; }
+        QSpinBox QLineEdit { border: none; background: transparent; padding: 0; }
         QLineEdit[invalid="true"] { border-color: #c78d66; }
         QPlainTextEdit#advertisement { border: none; border-radius: 9px; background: #f6f8f2;
             font-family: Menlo, Consolas, monospace; font-size: 12px; padding: 14px; }

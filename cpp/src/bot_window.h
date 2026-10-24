@@ -7,6 +7,7 @@
 #include <memory>
 
 class QCheckBox;
+class QSpinBox;
 class QLineEdit;
 class QLabel;
 class QPlainTextEdit;
@@ -84,6 +85,10 @@ private:
     QCheckBox *m_useAccount = nullptr;
     QLineEdit *m_login = nullptr;
     QLineEdit *m_password = nullptr;
+    QSpinBox *m_publicationLimit = nullptr;
+    bool m_limitReached = false;
+    int m_limitCompleted = 0;
+    int m_limitRemaining = 0;
     QCheckBox *m_checkLastPage = nullptr;
     QProgressBar *m_progress = nullptr;
     QLabel *m_status = nullptr;

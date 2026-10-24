@@ -100,6 +100,11 @@ QString BotReport::toText(int elapsedMinutes) const
     if (finishedAt.isValid())
         out << "Завершение: " << finishedAt.toString(Qt::ISODate) << "\n";
     out << "Форумов в списке: " << plannedForums << "\n";
+    if (!checkOnly) out << "Лимит реклам за запуск: "
+        << (publicationLimit > 0 ? QString::number(publicationLimit) : QString("без ограничения")) << "\n";
+    if (limitReached) out << (plannedForums > forums.size()
+        ? "Лимит достигнут. Остальные форумы сохранены для продолжения.\n"
+        : "Лимит достигнут. Весь список обработан.\n");
     out << "Обработано форумов: " << forums.size() << "\n";
     out << "Не обработано: " << qMax(0, plannedForums - int(forums.size())) << "\n";
     writeList(checkOnly ? "Готовы к публикации:" : "Успешно пройдены:", successful);
@@ -154,6 +159,7 @@ void PrBot::run()
     const auto started = std::chrono::steady_clock::now();
     m_report = {};
     m_report.checkOnly = m_config.checkOnly;
+    m_report.publicationLimit = m_config.checkOnly ? 0 : m_config.publicationLimit;
     m_report.startedAt = QDateTime::currentDateTime();
     m_currentUrl.clear();
     m_actualSourceForum.clear();
@@ -178,6 +184,12 @@ void PrBot::run()
         log("История запуска: " + m_log->archivePath());
         checkStop();
         emit progressChanged(0);
+        if (m_config.publicationLimit < 0 || m_config.publicationLimit > BotConfig::MaxPublicationLimit)
+            throw std::runtime_error("Некорректный лимит рекламы за запуск.");
+        if (m_config.checkOnly) log("Лимит рекламы не применяется к проверке без публикации.");
+        else log(m_config.publicationLimit > 0
+            ? QString("Лимит за запуск: %1 успешно завершённых пар. Пропуски и ошибки в лимит не входят.").arg(m_config.publicationLimit)
+            : QString("Лимит рекламы за запуск не задан: обрабатываю весь включённый список."));
         QStringList forums = readForums();
         m_report.plannedForums = int(forums.size());
         log(QString("Загружено форумов: %1. Файл: %2")
@@ -352,8 +364,19 @@ void PrBot::run()
             emit progressChanged(((index + 1) * 100) / forums.size());
             if (stop)
                 break;
+            // Проверяем лимит только после подтверждения и сохранения всей пары.
+            // Форумы, до которых не дошли, уже записаны в progress.json как pending.
+            if (!m_config.checkOnly && m_config.publicationLimit > 0
+                && m_report.successful.size() >= m_config.publicationLimit) {
+                m_report.limitReached = true;
+                const int remaining = int(forums.size()) - index - 1;
+                setStage("Лимит за запуск", QString("Лимит достигнут: размещено реклам %1 из %2; не обработано форумов: %3. Для следующего прохода нажмите «Продолжить».")
+                    .arg(m_report.successful.size()).arg(m_config.publicationLimit).arg(remaining));
+                emit publicationLimitReached(int(m_report.successful.size()), remaining);
+                break;
+            }
         }
-        if (m_control->stopRequested.load())
+        if (m_control->stopRequested.load() && !m_report.limitReached)
             m_report.cancelled = true;
         m_currentUrl.clear();
         setStage("Завершение", "Закрываю браузерную сессию и ChromeDriver.");
