@@ -256,6 +256,8 @@ void PrBot::run()
         if (!m_diagnostics->setVersions(driver.browserVersion(), driver.driverVersion())) diagnosticWarning();
         log(QString("Браузерная сессия создана. Chrome: %1; ChromeDriver: %2.")
                 .arg(driver.browserVersion(), driver.driverVersion()));
+        log(QString("Ожидание загрузки страницы — до %1 с; ответа ChromeDriver — до %2 с. После тайм-аута продолжение возможно только при подтверждённом адресе и доступном документе форума.")
+            .arg(WebDriverClient::PageLoadTimeoutMs / 1000).arg(WebDriverClient::CommandTimeoutMs / 1000));
         m_parentWindow = driver.windowHandles().value(0);
 
         m_sourcePrepared = false;
@@ -571,6 +573,8 @@ void PrBot::prepareSource(WebDriverClient &driver)
     } catch (const BotCancelled &) {
         throw;
     } catch (const std::exception &error) {
+        const auto *transportError = dynamic_cast<const WebDriverError *>(&error);
+        if (transportError && transportError->kind() == WebDriverError::Kind::Connection) throw;
         recordFailure(&driver, QString::fromUtf8(error.what()));
         log(QString("Автоматический поиск исходной темы не удался: %1")
                 .arg(QString::fromUtf8(error.what())), LogLevel::Warning);
@@ -1118,7 +1122,46 @@ void PrBot::checkStop() const
 void PrBot::navigate(WebDriverClient &driver, const QString &url)
 {
     checkStop();
-    driver.navigate(url);
+    try {
+        driver.navigate(url);
+    } catch (const WebDriverError &error) {
+        // Обрабатываем только полученный ответ WebDriver о тайм-ауте перехода.
+        // При разрыве связи команда ещё может выполняться: новые команды
+        // восстановления и повторный переход в этом случае не отправляем.
+        if (error.kind() != WebDriverError::Kind::Timeout || error.code() != "timeout") throw;
+        checkStop();
+        log(QString("Chrome не завершил загрузку за %1 с. Останавливаю оставшиеся ресурсы и проверяю документ без повторного перехода.")
+            .arg(WebDriverClient::PageLoadTimeoutMs / 1000), LogLevel::Warning);
+        try {
+            const auto document = driver.execute(R"JS(
+                window.stop();
+                return { url: location.href, ready: document.readyState,
+                    forum: !!document.querySelector('#pun-main') };
+            )JS").toObject();
+            checkStop();
+            const QUrl actual(document.value("url").toString()), expected(url);
+            // Совпадение домена без номера темы недостаточно: нельзя принять
+            // другую страницу или тему после незавершённого перехода.
+            const bool samePage = !ForumLinks::forumIdentity(url).isEmpty()
+                && ForumLinks::forumIdentity(actual.toString()) == ForumLinks::forumIdentity(url)
+                && QUrlQuery(actual).queryItems() == QUrlQuery(expected).queryItems();
+            const QString ready = document.value("ready").toString();
+            if (samePage && document.value("forum").toBool()
+                && (ready == "interactive" || ready == "complete")) {
+                log(QString("Документ форума доступен: %1; состояние — %2. Продолжаю проверки аккаунта, темы и формы.")
+                    .arg(actual.toString(), ready), LogLevel::Warning);
+                return;
+            }
+            log(QString("Продолжение после тайм-аута запрещено: адрес совпадает — %1; разметка форума — %2; состояние документа — %3.")
+                .arg(samePage ? "да" : "нет", document.value("forum").toBool() ? "есть" : "нет", ready), LogLevel::Warning);
+        } catch (const BotCancelled &) {
+            throw;
+        } catch (const std::exception &probeError) {
+            log("Не удалось проверить документ после тайм-аута: " + QString::fromUtf8(probeError.what()), LogLevel::Warning);
+        }
+        // Исходная ошибка остаётся причиной сбоя и попадёт в диагностику.
+        throw;
+    }
     checkStop();
 }
 

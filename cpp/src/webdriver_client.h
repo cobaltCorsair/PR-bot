@@ -31,13 +31,17 @@ private:
 // Используется только из рабочего потока PrBot, не из потока интерфейса.
 class WebDriverClient {
 public:
+    // HTTP-команда должна ждать дольше, чем разрешена загрузка страницы:
+    // иначе клиент оборвёт связь, пока ChromeDriver ещё выполняет переход.
+    static constexpr int PageLoadTimeoutMs = 30000;
+    static constexpr int CommandTimeoutMs = 40000;
     explicit WebDriverClient(QString driverExecutable);
     ~WebDriverClient();
 
     void start();
     void quit();
     void navigate(const QString &url);
-    QString currentUrl(int timeoutMs = 20000);
+    QString currentUrl(int timeoutMs = CommandTimeoutMs);
     QByteArray takeScreenshot(const QStringList &hiddenValues = {});
     QJsonValue execute(const QString &script, const QJsonArray &arguments = {});
     QStringList windowHandles();
@@ -54,7 +58,7 @@ public:
 
 private:
     QJsonValue request(const QByteArray &method, const QString &path,
-                       const QJsonObject &body = {}, int timeoutMs = 20000);
+                       const QJsonObject &body = {}, int timeoutMs = CommandTimeoutMs);
     QString sessionPath(const QString &suffix = {}) const;
     void waitForServer();
 

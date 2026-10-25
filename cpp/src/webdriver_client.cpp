@@ -91,7 +91,7 @@ void WebDriverClient::start()
                                       .value("chromedriverVersion").toString();
     m_driverVersion = driverVersion.isEmpty() ? "не сообщена" : driverVersion.section(' ', 0, 0);
     request("POST", sessionPath("/timeouts"),
-            {{"implicit", 0}, {"pageLoad", 10000}, {"script", 10000}});
+            {{"implicit", 0}, {"pageLoad", PageLoadTimeoutMs}, {"script", 10000}});
 }
 
 void WebDriverClient::quit()
@@ -275,9 +275,11 @@ QJsonValue WebDriverClient::request(const QByteArray &method, const QString &pat
     else if (!reply->isFinished()) {
         reply->abort();
         reply->deleteLater();
-        throw WebDriverError(WebDriverError::Kind::Timeout,
+        // Ответ драйвера не получен: нельзя считать переход завершённым и
+        // продолжать обход как после штатного page-load timeout WebDriver.
+        throw WebDriverError(WebDriverError::Kind::Connection,
             QString("Истекло время ожидания ответа ChromeDriver (%1, лимит %2 мс).")
-                .arg(command).arg(timeoutMs), "timeout");
+                .arg(command).arg(timeoutMs), "request timeout");
     }
 
     const QByteArray responseBytes = reply->readAll();
