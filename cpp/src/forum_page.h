@@ -35,7 +35,8 @@ private:
 // после — ищем новый ID, того же автора и признаки отправленного содержимого.
 class ForumPage final {
 public:
-    ForumPage(WebDriverClient &driver, std::function<void()> checkpoint = {});
+    ForumPage(WebDriverClient &driver, std::function<void()> checkpoint = {},
+              std::function<void(const QString &)> notice = {});
     void checkReady(); // Только чтение: аккаунт, форма и кнопка отправки.
     ForumLinkAnalysis analyseForumLinks(const QStringList &localForums);
     QString publish(const QString &message, const QString &requiredBacklink = {},
@@ -47,4 +48,5 @@ private:
     QJsonObject postingSnapshot();
     WebDriverClient &m_driver;
     std::function<void()> m_checkpoint;
+    std::function<void(const QString &)> m_notice;
 };

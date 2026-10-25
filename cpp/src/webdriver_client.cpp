@@ -1,4 +1,5 @@
 #include "webdriver_client.h"
+#include "forum_links.h"
 
 #include <QEventLoop>
 #include <QElapsedTimer>
@@ -12,6 +13,7 @@
 #include <QThread>
 #include <QTimer>
 #include <QUuid>
+#include <QUrlQuery>
 #include <stdexcept>
 #include <utility>
 
@@ -74,7 +76,9 @@ void WebDriverClient::start()
     const QJsonObject capabilities{
         {"alwaysMatch", QJsonObject{
              {"browserName", "chrome"},
-             {"pageLoadStrategy", "eager"}, // Ждём DOM, не загрузку всех картинок.
+             // Не позволяем фоновым ресурсам блокировать execute/sync после
+             // входа или отправки. Готовность нового документа проверяем сами.
+             {"pageLoadStrategy", "none"},
              {"goog:chromeOptions", chromeOptions},
          }},
     };
@@ -119,9 +123,79 @@ void WebDriverClient::quit()
     m_network.reset();
 }
 
-void WebDriverClient::navigate(const QString &url)
+QJsonObject WebDriverClient::markDocument()
 {
+    const QString token = QUuid::createUuid().toString(QUuid::Id128);
+    const auto marked = execute(R"JS(
+        window.__prbotDocumentToken = arguments[0];
+        return {token: arguments[0], url: location.href};
+    )JS", {token}).toObject();
+    if (marked.value("token").toString() != token || marked.value("url").toString().isEmpty())
+        throw WebDriverError(WebDriverError::Kind::Browser, "Не удалось отметить документ перед переходом.");
+    return marked;
+}
+
+bool WebDriverClient::waitForDocument(const QJsonObject &previous, const QString &expectedUrl,
+                                     bool allowFragmentNavigation,
+                                     const std::function<void()> &checkpoint)
+{
+    const auto probe = [&] {
+        return execute(R"JS(
+            return {token: window.__prbotDocumentToken || '', url: location.href,
+                ready: document.readyState, forum: !!document.querySelector('#pun-main')};
+        )JS").toObject();
+    };
+    const auto committed = [&](const QJsonObject &page) {
+        if (page.value("token") != previous.value("token")) return true;
+        // Переход к якорю той же страницы не создаёт новый Document.
+        const QUrl before(previous.value("url").toString()), expected(expectedUrl);
+        return allowFragmentNavigation && !expected.fragment().isEmpty()
+            && before.adjusted(QUrl::RemoveFragment) == expected.adjusted(QUrl::RemoveFragment)
+            && QUrl(page.value("url").toString()) == expected;
+    };
+    try {
+        waitFor([&]() -> QJsonValue {
+            const auto page = probe();
+            return committed(page) && (page.value("ready") == "interactive" || page.value("ready") == "complete");
+        }, "готовность нового документа", PageLoadTimeoutMs, checkpoint);
+        return false;
+    } catch (const WebDriverError &error) {
+        // Только собственное истечение ожидания. Потеря HTTP-ответа означает,
+        // что предыдущая команда ещё может выполняться: продолжать нельзя.
+        if (error.kind() != WebDriverError::Kind::Timeout || error.code() != "timeout") throw;
+        if (checkpoint) checkpoint();
+        const auto page = probe();
+        const QUrl actual(page.value("url").toString()), expected(expectedUrl);
+        const bool samePage = !expectedUrl.isEmpty()
+            && !ForumLinks::forumIdentity(expectedUrl).isEmpty()
+            && ForumLinks::forumIdentity(actual.toString()) == ForumLinks::forumIdentity(expectedUrl)
+            && QUrlQuery(actual).queryItems() == QUrlQuery(expected).queryItems();
+        // Старый DOM даже с правильным URL не может подтвердить переход.
+        // Вход со скриптом имеет неизвестный адрес назначения; его здесь
+        // автоматически не восстанавливаем.
+        if (!committed(page) || !samePage || !page.value("forum").toBool()) throw;
+        const auto stopped = execute("window.stop(); return document.readyState;").toString();
+        if (stopped != "interactive" && stopped != "complete") throw;
+        return true;
+    }
+}
+
+bool WebDriverClient::navigate(const QString &url, const std::function<void()> &checkpoint)
+{
+    if (checkpoint) checkpoint();
+    const auto previous = markDocument();
     request("POST", sessionPath("/url"), {{"url", url}});
+    return waitForDocument(previous, url, true, checkpoint);
+}
+
+void WebDriverClient::executeNavigation(const QString &script, const QJsonArray &arguments,
+                                        const std::function<void()> &checkpoint)
+{
+    if (checkpoint) checkpoint();
+    const auto previous = markDocument();
+    execute(script, arguments);
+    // Данные аккаунта старой страницы нельзя принять за результат PR-входа.
+    waitForDocument(previous, {}, false, checkpoint);
 }
 
 QString WebDriverClient::currentUrl(int timeoutMs)

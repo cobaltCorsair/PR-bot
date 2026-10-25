@@ -19,6 +19,7 @@ const QString kSnapshot = QStringLiteral(R"JS(
         ? field.form.querySelector('input.button.submit, button[type="submit"]') : null;
     return {
         pageUrl: location.href,
+        documentTime: performance.timeOrigin,
         formAction: button && button.hasAttribute('formaction') ? button.formAction
             : field && field.form ? field.form.action : '',
         userId: typeof UserID !== 'undefined' ? String(UserID) : '',
@@ -114,6 +115,13 @@ QString plainMessage(QString text)
 
 QString matchingPost(const QJsonObject &snapshot, const QJsonObject &proof, bool requireNew)
 {
+    // Совпадающая реклама от того же PR-аккаунта в другой теме не подтверждает
+    // эту отправку. Номер страницы и якорь могут измениться после ответа.
+    const QUrl actual(snapshot.value("pageUrl").toString()), topic(proof.value("topic_url").toString());
+    const QString topicId = QUrlQuery(topic).queryItemValue("id");
+    if (ForumLinks::forumIdentity(topic.toString()).isEmpty()
+        || ForumLinks::forumIdentity(actual.toString()) != ForumLinks::forumIdentity(topic.toString())
+        || (!topicId.isEmpty() && QUrlQuery(actual).queryItemValue("id") != topicId)) return {};
     auto expected = messageReferences(proof.value("message").toString());
     const QString text = plainMessage(proof.value("message").toString());
     const QString backlink = referenceKey(proof.value("backlink").toString());
@@ -144,8 +152,9 @@ PublicationError::PublicationError(Status status, const QString &message)
 {
 }
 
-ForumPage::ForumPage(WebDriverClient &driver, std::function<void()> checkpoint)
-    : m_driver(driver), m_checkpoint(std::move(checkpoint))
+ForumPage::ForumPage(WebDriverClient &driver, std::function<void()> checkpoint,
+                     std::function<void(const QString &)> notice)
+    : m_driver(driver), m_checkpoint(std::move(checkpoint)), m_notice(std::move(notice))
 {
 }
 
@@ -255,36 +264,58 @@ QString ForumPage::publish(const QString &message, const QString &requiredBackli
     // После клика ни тайм-аут, ни потеря связи не доказывают, что сервер ничего
     // не записал. Возвращаем неопределённый результат и никогда не кликаем снова.
     try {
-        const auto clicked = m_driver.execute(R"JS(
-            const field = document.querySelector('#main-reply');
-            const button = field && field.form
-                ? field.form.querySelector('input.button.submit, button[type="submit"]') : null;
-            if (!button) throw new Error('Не найдена кнопка отправки в форме ответа');
-            // Проверка адреса и клик выполняются одной командой. Если страница
-            // или форма изменились после проверки в PrBot, отправки не будет.
-            const action = button.hasAttribute('formaction') ? button.formAction : field.form.action;
-            if (location.href !== arguments[0] || action !== arguments[1]) return false;
-            button.click();
-            return true;
-        )JS", {before.value("pageUrl"), before.value("formAction")});
+        QJsonValue clicked;
+        try {
+            clicked = m_driver.execute(R"JS(
+                const field = document.querySelector('#main-reply');
+                const button = field && field.form
+                    ? field.form.querySelector('input.button.submit, button[type="submit"]') : null;
+                if (!button) return false;
+                // При ручном ожидании страницы фоновые переходы не должны
+                // подменить документ, аккаунт или содержимое перед кликом.
+                const action = button.hasAttribute('formaction') ? button.formAction : field.form.action;
+                const value = ('value' in field ? field.value : field.textContent) || '';
+                if (location.href !== arguments[0] || action !== arguments[1]
+                    || performance.timeOrigin !== arguments[2]
+                    || typeof UserID === 'undefined' || String(UserID) !== arguments[3]
+                    || (typeof GroupID !== 'undefined' && String(GroupID) === '3')
+                    || value.replace(/\r\n?/g, '\n') !== arguments[4].replace(/\r\n?/g, '\n')) return false;
+                button.click();
+                return true;
+            )JS", {before.value("pageUrl"), before.value("formAction"),
+                   before.value("documentTime"), author, message});
+        } catch (const WebDriverError &error) {
+            if (error.kind() != WebDriverError::Kind::Timeout
+                && error.kind() != WebDriverError::Kind::Browser) throw;
+            // Клик мог успеть отправить POST. Проверяем результат только
+            // чтением, никогда не повторяем эту команду.
+            // Отсутствующий результат ниже также допускает только сверку.
+        }
         // Только явное false доказывает, что проверка остановила команду до
         // клика. Потерянный/неожиданный ответ сохраняет неопределённый результат.
-        if (!clicked.isBool())
-            throw PublicationError(PublicationError::Status::Unknown,
-                "Не получено подтверждение выполнения команды отправки. Автоматический повтор заблокирован.");
-        if (!clicked.toBool())
+        if (!clicked.isBool() && m_notice)
+            m_notice("ChromeDriver не подтвердил завершение клика. Проверяю появление сообщения без повторной отправки.");
+        if (clicked.isBool() && !clicked.toBool())
             throw PublicationError(PublicationError::Status::Rejected,
-                "Адрес страницы или формы изменился перед кликом. Отправка не начиналась; обход остановлен.");
-        return m_driver.waitFor([&]() -> QJsonValue {
-            const QJsonObject current = m_driver.execute(kSnapshot).toObject();
-            const QString errors = current.value("errors").toString();
-            if (!errors.isEmpty())
-                throw PublicationError(PublicationError::Status::Rejected,
-                                       "Форум отклонил отправку: " + errors);
-            const QString match = matchingPost(current, proof, true);
-            if (!match.isEmpty()) return match;
-            return false;
-        }, "появление нового сообщения от текущего аккаунта", timeoutMs, m_checkpoint).toString();
+                "Страница, форма, аккаунт или текст изменились перед кликом. Отправка не начиналась; обход остановлен.");
+        try {
+            return m_driver.waitFor([&]() -> QJsonValue {
+                const QJsonObject current = m_driver.execute(kSnapshot).toObject();
+                const QString match = matchingPost(current, proof, true);
+                if (!match.isEmpty()) return match;
+                const QString errors = current.value("errors").toString();
+                if (!errors.isEmpty() && errors != before.value("errors").toString())
+                    throw PublicationError(PublicationError::Status::Rejected,
+                                           "Форум отклонил отправку: " + errors);
+                return false;
+            }, "появление нового сообщения от текущего аккаунта", timeoutMs, m_checkpoint).toString();
+        } catch (const WebDriverError &error) {
+            if (error.kind() != WebDriverError::Kind::Timeout) throw;
+            if (m_notice) m_notice("Сообщение пока не подтверждено в открытой странице. Сверяю сохранённую тему и её последние страницы без повторной отправки.");
+            const QString found = findPublished(proof);
+            if (!found.isEmpty()) return found;
+            throw;
+        }
     } catch (const PublicationError &) {
         throw;
     } catch (const std::exception &error) {
@@ -309,7 +340,7 @@ QString ForumPage::findPublished(const QJsonObject &proof, bool requireNew)
         if (visited.contains(url)) continue;
         visited.insert(url);
         if (m_checkpoint) m_checkpoint();
-        m_driver.navigate(url);
+        m_driver.navigate(url, m_checkpoint);
         try {
             const auto found = m_driver.waitFor([&]() -> QJsonValue {
                 const QString match = matchingPost(m_driver.execute(kSnapshot).toObject(), proof, requireNew);

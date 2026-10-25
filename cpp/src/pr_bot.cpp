@@ -95,6 +95,16 @@ int BotReport::skippedCount() const
         + timeoutErrors.size() + alreadyPosted.size() + ownForums.size();
 }
 
+int BotReport::unfinishedPairs() const
+{
+    int count = 0;
+    for (const auto &forum : forums) {
+        const auto &phase = forum.publicationPhase;
+        if (phase == "source_submitting" || phase == "source_confirmed" || phase == "target_submitting") ++count;
+    }
+    return count;
+}
+
 QString BotReport::toText(int elapsedMinutes) const
 {
     QString result;
@@ -130,6 +140,7 @@ QString BotReport::toText(int elapsedMinutes) const
     if (checkOnly)
         out << "Рекламные сообщения в этом проходе не отправлялись.\n";
     out << "Было пропущено форумов: " << skippedCount() << "\n";
+    if (!checkOnly) out << "Незавершённых пар (отдельное сообщение уже могло появиться): " << unfinishedPairs() << "\n";
     out << "Завершились ошибкой: "
         << qMax(0, int(forums.size()) - int(successful.size()) - skippedCount()
                    - int(cancelledForums.size())) << "\n";
@@ -155,6 +166,8 @@ QString BotReport::toText(int elapsedMinutes) const
             out << "   Подтверждённое сообщение в исходной теме: " << forum.sourcePageUrl << "\n";
         if (!forum.targetPageUrl.isEmpty())
             out << "   Подтверждённое сообщение на целевом форуме: " << forum.targetPageUrl << "\n";
+        if (!forum.publicationPhase.isEmpty())
+            out << "   Сохранённая стадия пары: " << forum.publicationPhase << "\n";
     }
     return result;
 }
@@ -256,7 +269,7 @@ void PrBot::run()
         if (!m_diagnostics->setVersions(driver.browserVersion(), driver.driverVersion())) diagnosticWarning();
         log(QString("Браузерная сессия создана. Chrome: %1; ChromeDriver: %2.")
                 .arg(driver.browserVersion(), driver.driverVersion()));
-        log(QString("Ожидание загрузки страницы — до %1 с; ответа ChromeDriver — до %2 с. После тайм-аута продолжение возможно только при подтверждённом адресе и доступном документе форума.")
+        log(QString("Ожидаю новый документ явно — до %1 с; ответ ChromeDriver — до %2 с. Фоновые загрузки не блокируют проверку результата отправки.")
             .arg(WebDriverClient::PageLoadTimeoutMs / 1000).arg(WebDriverClient::CommandTimeoutMs / 1000));
         m_parentWindow = driver.windowHandles().value(0);
 
@@ -378,15 +391,24 @@ void PrBot::run()
             } catch (const std::exception &error) {
                 const QString message = QString::fromUtf8(error.what());
                 recordFailure(&driver, message);
-                if (!m_currentResult.sourcePageUrl.isEmpty() && m_currentResult.targetPageUrl.isEmpty())
-                    log("Первая отправка уже выполнена. Проверьте обе темы перед повторным запуском: "
-                        "результат второй отправки неизвестен.", LogLevel::Warning);
                 m_report.criticalError = message;
                 m_currentResult.outcome = "Ошибка";
                 log(QString("Критическая ошибка; обход остановлен: %1").arg(message), LogLevel::Error);
                 stop = true;
                 m_currentResult.detail = message;
             }
+            if (m_state && m_progressState.isPartial() && m_currentResult.outcome != "Успешно") {
+                const QString summary = m_progressState.phase == "source_submitting"
+                    ? "Незавершённая пара: первая отправка могла пройти, но не подтверждена; ответная реклама ещё не отправлялась."
+                    : m_progressState.phase == "source_confirmed"
+                    ? "Незавершённая пара: первое сообщение подтверждено; ответная реклама не завершена."
+                    : "Незавершённая пара: первое сообщение подтверждено; результат отправки ответной рекламы неизвестен.";
+                m_currentResult.outcome = "Незавершённая пара";
+                m_currentResult.detail = summary + " " + m_currentResult.detail;
+                log(summary, LogLevel::Error);
+                log("Пара сохранена для сверки без повторной отправки первого сообщения. Если обмен уже исправлен вручную, выделите форум → «Сверить вручную…» → «Обе публикации есть».", LogLevel::Warning);
+            }
+            m_currentResult.publicationPhase = m_progressState.phase;
             if (m_state) {
                 if (m_currentResult.outcome == "Успешно") {
                     m_progressState.phase = "complete";
@@ -458,6 +480,9 @@ void PrBot::run()
                 : "Обработано %1/%2; успешно: %3; пропущено: %4; длительность: %5 с.")
                 .arg(m_report.forums.size()).arg(m_report.plannedForums)
                 .arg(m_report.successful.size()).arg(m_report.skippedCount()).arg(m_report.elapsedSeconds));
+    if (!m_config.checkOnly && m_report.unfinishedPairs() > 0)
+        log(QString("Подтверждено полных пар: %1. Незавершённых пар: %2. Ноль полных пар не означает отсутствие опубликованных сообщений; проверьте указанные выше стороны обмена.")
+            .arg(m_report.successful.size()).arg(m_report.unfinishedPairs()), LogLevel::Warning);
     try {
         writeReport(elapsedMinutes);
         emit reportWritten(m_reportPath);
@@ -648,7 +673,8 @@ void PrBot::recoverForum(WebDriverClient &driver)
         || (!saved.sourceLink.isEmpty() && !sourceBelongs(saved.sourceLink)))
         throw std::runtime_error("Сохранённая исходная тема не соответствует форуму. Нужна ручная сверка.");
     if (!saved.sourceLink.isEmpty()) sourceProof.insert("topic_url", saved.sourceLink);
-    ForumPage page(driver, [this] { checkStop(); });
+    ForumPage page(driver, [this] { checkStop(); },
+        [this](const QString &message) { log(message, LogLevel::Warning); });
     const QString source = page.findPublished(sourceProof);
     if (source.isEmpty()) {
         saved.review = true;
@@ -790,7 +816,7 @@ bool PrBot::firstEnter(WebDriverClient &driver, bool selectTopic, const QString 
     for (int index = 0; index < scripts.size(); ++index) {
         checkStop();
         setStage("Вход", QString("Пробую %1").arg(scripts.at(index)));
-        driver.execute(scripts.at(index));
+        driver.executeNavigation(scripts.at(index), {}, [this] { checkStop(); });
         // При успехе остаёмся в проверенной теме. Второго такого же обхода
         // профиля/поиска/темы в enterForum() больше нет.
         if (openAccountTopic(driver, selectTopic, expectedAuthor))
@@ -898,14 +924,6 @@ QString PrBot::suspiciousForumLinks(WebDriverClient &driver, const QStringList &
     log(QString("Анализ страницы %1: сообщений без блока шаблона — %2; сообщений с внешними ссылками — %3; разных площадок — %4. Минимум для вывода — %5 сообщения.")
         .arg(driver.currentUrl()).arg(analysis.scannedPosts).arg(analysis.linkedPosts)
         .arg(analysis.postsByForum.size()).arg(ForumLinkAnalysis::MinLinkedPosts));
-    int listed = 0;
-    for (auto it = analysis.postsByForum.cbegin(); it != analysis.postsByForum.cend(); ++it) {
-        if (listed++ == 20) {
-            log(QString("Ещё площадок в анализе: %1.").arg(analysis.postsByForum.size() - 20));
-            break;
-        }
-        log(QString("Площадка %1 встречается в %2 сообщениях.").arg(it.key()).arg(it.value()));
-    }
     if (!analysis.singleForumOnly()) return {};
     return QString("Возможная партнёрка: во всех %1 сообщениях с внешними ссылками найдена только одна площадка — %2.")
         .arg(analysis.linkedPosts).arg(analysis.postsByForum.firstKey());
@@ -916,7 +934,7 @@ void PrBot::forcedLogin(WebDriverClient &driver)
     // Аргументы передаются отдельно от JavaScript: кавычки в пароле не могут
     // изменить скрипт, а содержимое запроса не записывается в журнал.
     const QJsonArray args{m_config.login, m_config.password};
-    driver.execute(
+    driver.executeNavigation(
         "const form = document.createElement('form'); form.id = 'prbot-login'; "
         "form.method = 'post'; form.action = '/login.php?action=in'; "
         "for (const [name,value,type] of [['form_sent','1','hidden'],"
@@ -926,7 +944,7 @@ void PrBot::forcedLogin(WebDriverClient &driver)
         "const submit=document.createElement('input'); submit.type='submit'; submit.name='login'; "
         "form.appendChild(submit); const anchor=document.querySelector('#navlogin'); "
         "if (anchor) anchor.after(form); else document.body.appendChild(form); "
-        "form.submit();", args);
+        "form.submit();", args, [this] { checkStop(); });
 }
 
 void PrBot::forumLogout(WebDriverClient &driver)
@@ -1025,7 +1043,8 @@ void PrBot::visitForum(WebDriverClient &driver, const QString &forumUrl,
 
     m_progressState.topicUrl = m_currentResult.topicUrl;
     m_progressState.targetAuthor = m_userId;
-    ForumPage page(driver, [this] { checkStop(); });
+    ForumPage page(driver, [this] { checkStop(); },
+        [this](const QString &message) { log(message, LogLevel::Warning); });
     QString postLink;
     try {
         postLink = page.publish(topicPostHtml, {}, [this] {
@@ -1033,7 +1052,7 @@ void PrBot::visitForum(WebDriverClient &driver, const QString &forumUrl,
             // После начала первой отправки завершаем пару даже при запросе остановки.
             // Принудительное прерывание между отправками оставило бы взаимность без ответа.
             m_finishingPublication = true;
-            log("Отправляю сообщение и ожидаю подтверждения его появления.");
+            log("Шаг 1/2: размещаю рекламу целевого форума в исходной теме и проверяю появление нового сообщения.");
         }, 15000, [this, &driver](const QJsonObject &proof) {
             rememberSourceForum(ForumLinks::forumFromTopic(proof.value("topic_url").toString()));
             // До первой отправки перепроверяем другую вкладку: редирект на
@@ -1057,14 +1076,14 @@ void PrBot::visitForum(WebDriverClient &driver, const QString &forumUrl,
     m_progressState.detail = "Взаимная реклама подтверждена; осталось разместить наш ответ.";
     saveProgress();
     m_currentResult.sourcePageUrl = postLink;
-    log(QString("Новое сообщение подтверждено: %1").arg(postLink));
+    log(QString("Шаг 1/2 подтверждён: %1. Перехожу к ответной рекламе.").arg(postLink));
 
     setStage("Отправка на целевой форум", "Добавляю к нашему шаблону ссылку на взаимную рекламу.");
     driver.switchToWindow(m_forumWindow);
     const QString finalMessage = m_config.prCode + " [url=" + postLink + "]ваша реклама[/url]";
     try {
         m_currentResult.targetPageUrl = page.publish(finalMessage, postLink, [this] {
-            log("Отправляю ответную рекламу и проверяю новое сообщение вместе со ссылкой на взаимность.");
+            log("Шаг 2/2: размещаю нашу рекламу на целевом форуме и проверяю сообщение вместе со ссылкой на взаимность.");
         }, 15000, [this, &driver](const QJsonObject &proof) {
             rejectOwnTarget(proof.value("topic_url").toString());
             rejectOwnTarget(proof.value("form_action").toString());
@@ -1087,7 +1106,7 @@ void PrBot::visitForum(WebDriverClient &driver, const QString &forumUrl,
     m_progressState.targetLink = m_currentResult.targetPageUrl;
     m_progressState.phase = "complete";
     saveProgress();
-    log(QString("Новое сообщение подтверждено: %1").arg(m_currentResult.targetPageUrl));
+    log(QString("Шаг 2/2 подтверждён: %1. Обмен завершён; обе публикации найдены.").arg(m_currentResult.targetPageUrl));
 }
 
 void PrBot::diagnosticWarning()
@@ -1122,46 +1141,9 @@ void PrBot::checkStop() const
 void PrBot::navigate(WebDriverClient &driver, const QString &url)
 {
     checkStop();
-    try {
-        driver.navigate(url);
-    } catch (const WebDriverError &error) {
-        // Обрабатываем только полученный ответ WebDriver о тайм-ауте перехода.
-        // При разрыве связи команда ещё может выполняться: новые команды
-        // восстановления и повторный переход в этом случае не отправляем.
-        if (error.kind() != WebDriverError::Kind::Timeout || error.code() != "timeout") throw;
-        checkStop();
-        log(QString("Chrome не завершил загрузку за %1 с. Останавливаю оставшиеся ресурсы и проверяю документ без повторного перехода.")
-            .arg(WebDriverClient::PageLoadTimeoutMs / 1000), LogLevel::Warning);
-        try {
-            const auto document = driver.execute(R"JS(
-                window.stop();
-                return { url: location.href, ready: document.readyState,
-                    forum: !!document.querySelector('#pun-main') };
-            )JS").toObject();
-            checkStop();
-            const QUrl actual(document.value("url").toString()), expected(url);
-            // Совпадение домена без номера темы недостаточно: нельзя принять
-            // другую страницу или тему после незавершённого перехода.
-            const bool samePage = !ForumLinks::forumIdentity(url).isEmpty()
-                && ForumLinks::forumIdentity(actual.toString()) == ForumLinks::forumIdentity(url)
-                && QUrlQuery(actual).queryItems() == QUrlQuery(expected).queryItems();
-            const QString ready = document.value("ready").toString();
-            if (samePage && document.value("forum").toBool()
-                && (ready == "interactive" || ready == "complete")) {
-                log(QString("Документ форума доступен: %1; состояние — %2. Продолжаю проверки аккаунта, темы и формы.")
-                    .arg(actual.toString(), ready), LogLevel::Warning);
-                return;
-            }
-            log(QString("Продолжение после тайм-аута запрещено: адрес совпадает — %1; разметка форума — %2; состояние документа — %3.")
-                .arg(samePage ? "да" : "нет", document.value("forum").toBool() ? "есть" : "нет", ready), LogLevel::Warning);
-        } catch (const BotCancelled &) {
-            throw;
-        } catch (const std::exception &probeError) {
-            log("Не удалось проверить документ после тайм-аута: " + QString::fromUtf8(probeError.what()), LogLevel::Warning);
-        }
-        // Исходная ошибка остаётся причиной сбоя и попадёт в диагностику.
-        throw;
-    }
+    const bool stoppedResources = driver.navigate(url, [this] { checkStop(); });
+    if (stoppedResources)
+        log("Новый документ форума подтверждён; зависшие фоновые ресурсы остановлены. Проверяю аккаунт, тему и форму.", LogLevel::Warning);
     checkStop();
 }
 

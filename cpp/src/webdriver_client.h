@@ -40,7 +40,10 @@ public:
 
     void start();
     void quit();
-    void navigate(const QString &url);
+    // true означает, что после явного ожидания остановлены зависшие ресурсы.
+    bool navigate(const QString &url, const std::function<void()> &checkpoint = {});
+    void executeNavigation(const QString &script, const QJsonArray &arguments = {},
+                           const std::function<void()> &checkpoint = {});
     QString currentUrl(int timeoutMs = CommandTimeoutMs);
     QByteArray takeScreenshot(const QStringList &hiddenValues = {});
     QJsonValue execute(const QString &script, const QJsonArray &arguments = {});
@@ -57,6 +60,9 @@ public:
                        const std::function<void()> &checkpoint = {});
 
 private:
+    QJsonObject markDocument();
+    bool waitForDocument(const QJsonObject &previous, const QString &expectedUrl,
+                         bool allowFragmentNavigation, const std::function<void()> &checkpoint);
     QJsonValue request(const QByteArray &method, const QString &path,
                        const QJsonObject &body = {}, int timeoutMs = CommandTimeoutMs);
     QString sessionPath(const QString &suffix = {}) const;

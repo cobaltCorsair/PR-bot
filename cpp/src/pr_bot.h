@@ -29,6 +29,7 @@ struct ForumRunResult {
     QString topicUrl;
     QString sourcePageUrl;
     QString targetPageUrl;
+    QString publicationPhase;
     qint64 elapsedSeconds = 0;
 };
 
@@ -54,6 +55,7 @@ struct BotReport {
     QList<ForumRunResult> forums;
 
     int skippedCount() const;
+    int unfinishedPairs() const;
     QString toText(int elapsedMinutes) const;
 };
 
